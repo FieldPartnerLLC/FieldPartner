@@ -284,7 +284,9 @@ struct SettingsView: View {
             Button("Connect glasses") { glasses.register() }
           }
           #if DEBUG
-          Button("Use simulated glasses (testing)") { glasses.enableSimulatedGlasses() }
+          Button("Simulated glasses: demo video (Simulator)") { glasses.enableSimulatedGlasses(demoVideo: true) }
+          Button("Simulated glasses: phone camera") { glasses.enableSimulatedGlasses(demoVideo: false) }
+          if glasses.simulated { Text("Simulated glasses are on.").font(.footnote).foregroundStyle(.secondary) }
           #endif
         }
         Section("AI partner") {

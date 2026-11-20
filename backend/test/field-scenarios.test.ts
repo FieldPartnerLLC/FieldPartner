@@ -521,6 +521,24 @@ describe("uploading recordings from the phone", () => {
     expect(get.body).toBe("MP4!");
   });
 
+  it("accepts the end-of-visit transcript upload (text/plain stays raw bytes)", async () => {
+    const job = await newJob();
+    const { visit } = await startVisit(job.id);
+    const up = await w.app.inject({
+      method: "POST",
+      url: `/visits/${visit.id}/uploads`,
+      headers: auth(w.tokens.tech),
+      payload: { kind: "transcript", filename: "transcript.txt", contentType: "text/plain", clientId: "tx-1" },
+    });
+    const url = new URL(up.json().url);
+    const text = "hey dispatch what does three flashes mean\nAI: Pressure switch open.";
+    const put = await w.app.inject({ method: "PUT", url: url.pathname + url.search, headers: { "content-type": "text/plain" }, payload: text });
+    expect(put.statusCode).toBe(200);
+    expect(put.json().bytes).toBe(Buffer.byteLength(text));
+    const put2 = await w.app.inject({ method: "PUT", url: url.pathname + url.search, headers: { "content-type": "text/plain; charset=utf-8" }, payload: text });
+    expect(put2.statusCode).toBe(200);
+  });
+
   it("rejects tampered and expired upload links, and path tricks", async () => {
     const job = await newJob();
     const { visit } = await startVisit(job.id);

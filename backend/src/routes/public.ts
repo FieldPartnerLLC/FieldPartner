@@ -56,8 +56,10 @@ h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:24px 0 6px;border-bott
     const key = decodeURIComponent((req.params as any)["*"]);
     const { exp, sig } = req.query as any;
     verifyLocalSignature("PUT", key, exp, sig);
-    const body = req.body as Buffer;
-    if (!Buffer.isBuffer(body)) throw notFound("Upload body missing.");
+    // text/plain arrives as a string (Fastify's built-in parser), everything else as a Buffer.
+    const raw = req.body as unknown;
+    const body = Buffer.isBuffer(raw) ? raw : typeof raw === "string" ? Buffer.from(raw, "utf8") : null;
+    if (!body) throw notFound("Upload body missing.");
     await putObject(key, body, String(req.headers["content-type"] ?? "application/octet-stream"));
     return { ok: true, bytes: body.length };
   });

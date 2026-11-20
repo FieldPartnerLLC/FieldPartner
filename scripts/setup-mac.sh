@@ -46,6 +46,16 @@ say "iPhone app settings"
 if [ ! -f ios/Config/Local.xcconfig ]; then cp ios/Config/Local.xcconfig.example ios/Config/Local.xcconfig; fi
 sed -i '' "s|^FP_API_BASE_URL = .*|FP_API_BASE_URL = http:/\$()/$IP:8080|" ios/Config/Local.xcconfig
 
+say "Android app settings"
+SDK="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
+touch android/local.properties
+set_prop() { # key value: replace or append in android/local.properties
+  if grep -q "^$1=" android/local.properties; then sed -i '' "s|^$1=.*|$1=$2|" android/local.properties; else echo "$1=$2" >> android/local.properties; fi
+}
+set_prop sdk.dir "$SDK"
+set_prop fp_api_base_url "http://$IP:8080"
+[ -d "$SDK" ] || echo "Note: Android SDK not found at $SDK. Install Android Studio, open it once, then run this script again."
+
 say "Running the automated tests"
 (cd backend && npm test --silent) || fail "Backend tests failed"
 (cd agent && ./.venv/bin/python -m pytest -q) || fail "Agent tests failed"

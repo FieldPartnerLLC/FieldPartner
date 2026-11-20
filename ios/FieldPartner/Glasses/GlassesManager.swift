@@ -37,6 +37,8 @@ final class GlassesManager: ObservableObject {
   @Published private(set) var framesPerSecond: Double = 0
   @Published var needsCameraPermission = false
   @Published var errorMessage: String?
+  /// True while Meta's simulated glasses (MockDeviceKit) stand in for real ones.
+  @Published private(set) var simulated = false
 
   nonisolated(unsafe) var onPixelBuffer: ((CVPixelBuffer) -> Void)?
   nonisolated(unsafe) var onSampleBuffer: ((CMSampleBuffer) -> Void)?
@@ -324,16 +326,22 @@ final class GlassesManager: ObservableObject {
   // MARK: - Simulated glasses (debug builds only)
 
   #if DEBUG
-  /// Pairs Meta's simulated glasses fed by the phone's back camera, so the whole
-  /// pipeline can be tested before real glasses arrive.
-  func enableSimulatedGlasses() {
+  /// Pairs Meta's simulated glasses so the whole pipeline can be tested without real glasses.
+  /// `demoVideo` plays the bundled furnace video as the glasses camera (works in the iOS
+  /// Simulator, which has no camera). Otherwise the phone's back camera is the feed.
+  func enableSimulatedGlasses(demoVideo: Bool = true) {
     MockDeviceKit.shared.enable()
     do {
       let glasses = try MockDeviceKit.shared.pairGlasses(model: .rayBanMeta)
       glasses.powerOn()
       glasses.unfold()
       glasses.don()
-      glasses.services.camera.setCameraFeed(cameraFacing: .back)
+      if demoVideo, let url = Bundle.main.url(forResource: "demo-glasses", withExtension: "mp4") {
+        glasses.services.camera.setCameraFeed(fileURL: url)
+      } else {
+        glasses.services.camera.setCameraFeed(cameraFacing: .back)
+      }
+      simulated = true
     } catch {
       errorMessage = "Simulated glasses failed: \(error.localizedDescription)"
     }

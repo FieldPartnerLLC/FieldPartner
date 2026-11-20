@@ -24,6 +24,10 @@ struct FieldPartnerApp: App {
           Task { await GlassesManager.handle(url: url) }
         }
         .tint(.orange)
+        #if DEBUG && targetEnvironment(simulator)
+        // The iOS Simulator has no glasses and no camera: play the demo video as the glasses feed.
+        .task { model.glasses.enableSimulatedGlasses(demoVideo: true) }
+        #endif
     }
   }
 }

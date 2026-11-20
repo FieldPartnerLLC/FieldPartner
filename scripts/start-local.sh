@@ -7,6 +7,7 @@ cd "$ROOT"
 IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || echo "127.0.0.1")
 sed -i '' "s|^PUBLIC_API_URL=.*|PUBLIC_API_URL=http://$IP:8080|" config.env
 sed -i '' "s|^PORTAL_URL=.*|PORTAL_URL=http://$IP:5173|" config.env
+[ -f android/local.properties ] && sed -i '' "s|^fp_api_base_url=.*|fp_api_base_url=http://$IP:8080|" android/local.properties
 set -a; source config.env; set +a
 export BACKEND_URL="http://127.0.0.1:8080" DATA_DIR="$ROOT/data" VITE_API_URL="http://$IP:8080"
 for k in LIVEKIT_URL LIVEKIT_API_KEY LIVEKIT_API_SECRET GOOGLE_API_KEY; do
@@ -35,12 +36,14 @@ cat <<MSG
 
 FieldPartner is running on this Mac.
 
-  Server for the iPhone app:  http://$IP:8080
+  Server for the phone apps:  http://$IP:8080   (emulators and simulators use this too)
   Expert portal:              http://$IP:5173   (open on this Mac or any laptop on the same Wi-Fi)
   Demo logins:                $ROOT/data/demo-accounts.txt
   Logs:                       $ROOT/logs/
 
-The iPhone must be on the same Wi-Fi as this Mac.
+Phones must be on the same Wi-Fi as this Mac.
+End-to-end check with no phone, in a second Terminal window:
+  agent/.venv/bin/python tools/virtual_tech.py
 If macOS asks whether "node" may accept incoming connections, click Allow.
 Press Ctrl+C to stop.
 MSG

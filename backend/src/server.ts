@@ -26,6 +26,8 @@ export async function buildServer(opts: { logger?: boolean } = {}): Promise<Fast
 
   // Raw bodies for the LiveKit webhook signature check and local media uploads.
   app.addContentTypeParser("application/webhook+json", { parseAs: "string" }, (_req, body, done) => done(null, body));
+  // Uploads must stay raw bytes. Drop the built-in text/plain string parser so the buffer parser below wins.
+  app.removeContentTypeParser("text/plain");
   app.addContentTypeParser(/^(video|audio|image|application\/octet-stream|text\/plain)/, { parseAs: "buffer", bodyLimit: 2 * 1024 * 1024 * 1024 }, (_req, body, done) =>
     done(null, body),
   );

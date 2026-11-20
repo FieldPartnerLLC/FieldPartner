@@ -11,3 +11,11 @@ ios/Config/Local.xcconfig
 ios/FieldPartner.xcodeproj/
 ios/.build/
 .DS_Store
+android/local.properties
+android/.gradle/
+android/build/
+android/app/build/
+android/.idea/
+android/*.iml
+android/app/*.jks
+*.keystore

@@ -20,23 +20,23 @@ Tonight's setup runs everything on one Mac. For real technicians you need the pi
 - Twilio: buy a number; apply for a WhatsApp sender (approval takes days). Until approved, paging falls back to SMS.
 - SMTP for report emails (Amazon SES, Postmark, SendGrid).
 - Apple Developer Program ($99/year) for TestFlight.
-- Meta Wearables Developer Center: register the app, get the Meta App ID and Client Token, put them in `ios/Config/Local.xcconfig`. Needed when techs' Meta AI apps are not in Developer Mode. Create a release channel to share with your techs.
+- Meta Wearables Developer Center: register the app, get the Meta App ID and Client Token, put them in `ios/Config/Local.xcconfig` and `android/local.properties`. Needed when techs' Meta AI apps are not in Developer Mode. Create a release channel to share with your techs.
 
 ## 3. Distribution to technicians
 
-1. Xcode: Product > Archive > Distribute > TestFlight.
+1. Xcode: Product > Archive > Distribute > TestFlight. Android: `./scripts/build-android.sh release`, upload the .aab to Play Console > Internal testing.
 2. Add techs as internal testers (up to 100) in App Store Connect.
 3. Each tech installs TestFlight, then FieldPartner, then connects their glasses.
 4. Meta release channel: add each tech so their glasses accept the app.
 
 ## 4. Before real customers
 
-- Attorney review of the consent text in `ios/FieldPartner/Visit/ConsentText.swift` for every state you operate in. Questions to ask are in the spec doc.
+- Attorney review of the consent text in `ios/FieldPartner/Visit/ConsentText.swift` and `android/.../core/ConsentText.kt` (keep them identical) for every state you operate in. Questions to ask are in the spec doc.
 - Retention period per company (`retention_days`) and a deletion job.
 - Each company: wake phrase, CO stop level, supervisor name (`settings.supervisorName`), expert phone and WhatsApp numbers, escalation order.
 - Trade profiles reviewed by a licensed lead in each trade (`shared/trades.json`, or `PUT /admin/trades/:id`).
 - Run `docs/FIELD-TEST-CHECKLIST.md`.
 
-## 5. Android
+## 5. Store submission
 
-Same backend, agent and portal. The Android app needs the Meta DAT Android SDK (GitHub Packages token with `read:packages`) and the LiveKit Android SDK. It mirrors the iOS structure: GlassesManager, LiveSession, TranscriptEngine (Android SpeechRecognizer on-device), CommandParser (port the Swift tests 1:1), VisitController, EventQueue, UploadManager.
+Step by step for Google Play and the App Store, including signing keys, the foreground service declaration and reviewer notes: `docs/EMULATOR-AND-STORES.md` sections 6 to 8.
