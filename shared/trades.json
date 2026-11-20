@@ -1,0 +1,249 @@
+{
+  "version": 1,
+  "trades": [
+    {
+      "id": "hvac",
+      "name": "HVAC",
+      "description": "Heating, cooling, ventilation, boilers, heat pumps, water heaters and water treatment",
+      "preWorkReadings": [
+        { "key": "gas_detector", "label": "Combustible gas detector", "unit": "ppm or % LEL", "requiredWhen": "gas or oil appliance" },
+        { "key": "co_ambient", "label": "Ambient CO", "unit": "ppm", "requiredWhen": "gas or oil appliance" }
+      ],
+      "stopRules": [
+        "Any combustible gas reading above zero, or a gas smell reported by anyone",
+        "Ambient CO at or above the company CO stop level in living space",
+        "Cracked or rusted-through heat exchanger, flame rollout, or soot at the burner",
+        "Venting disconnected or blocked on a fuel-burning appliance"
+      ],
+      "neverGuide": [
+        "Opening gas valves, gas line work, or gas pressure adjustment",
+        "Refrigerant recovery, charging, or brazing on a charged system unless the technician confirms EPA 608 certification",
+        "Work on live circuits above 24 volts",
+        "Bypassing or jumping any safety switch, limit, or rollout switch"
+      ],
+      "visibleHazards": [
+        "flame outside the burner area", "soot or scorch marks", "melted wiring", "water dripping on electrical parts",
+        "disconnected or corroded flue pipe", "combustibles stored next to a furnace or water heater"
+      ],
+      "advisories": [
+        "heavily loaded filter", "rust or standing water in a drain pan", "missing panel screws or doors", "kinked or crushed flex duct"
+      ],
+      "verification": [
+        "Run three full heating or cooling cycles",
+        "Temperature rise or split within the nameplate range",
+        "Flue CO and draft checked on fuel-burning equipment",
+        "No error codes on the control board after the last cycle",
+        "Thermostat calls and stops correctly"
+      ],
+      "certifications": ["EPA 608", "Gas fitter license where required"]
+    },
+    {
+      "id": "electrical",
+      "name": "Electrical",
+      "description": "Residential and light commercial electrical service, panels, circuits, fixtures, EV chargers, generators",
+      "preWorkReadings": [
+        { "key": "voltage_verified_dead", "label": "Circuit verified dead with a tested meter (live-dead-live)", "unit": "yes/no", "requiredWhen": "any work inside a panel, box, or fixture" }
+      ],
+      "stopRules": [
+        "Burning smell, smoke, or heat at a panel, outlet, or wire",
+        "Water in or on a panel or energized equipment",
+        "Aluminum branch wiring with signs of overheating",
+        "Any shock or tingle reported by the technician or customer"
+      ],
+      "neverGuide": [
+        "Work on energized conductors or inside an energized panel",
+        "Removing a panel dead front without the technician confirming PPE and training",
+        "Service entrance, meter, or utility-side work",
+        "Defeating breakers, GFCI or AFCI protection"
+      ],
+      "visibleHazards": [
+        "scorched or melted insulation", "arcing or sparks", "exposed live conductors within reach", "water near energized equipment",
+        "double-tapped or oversized breakers with heat marks"
+      ],
+      "advisories": [
+        "missing knockouts or open holes in a panel", "missing cover plates", "unlabeled panel directory", "extension cords used as permanent wiring"
+      ],
+      "verification": [
+        "Circuit tested under load after the repair",
+        "GFCI and AFCI devices tested where installed",
+        "Torque on terminations per manufacturer spec",
+        "Panel directory updated",
+        "Covers and dead front reinstalled"
+      ],
+      "certifications": ["Electrician license per jurisdiction"]
+    },
+    {
+      "id": "plumbing",
+      "name": "Plumbing",
+      "description": "Water supply, drains, fixtures, water heaters, sump pumps, gas piping where licensed",
+      "preWorkReadings": [
+        { "key": "water_shutoff_located", "label": "Main water shutoff located", "unit": "yes/no", "requiredWhen": "supply line work" },
+        { "key": "gas_detector", "label": "Combustible gas detector", "unit": "ppm or % LEL", "requiredWhen": "gas water heater or gas piping" }
+      ],
+      "stopRules": [
+        "Any gas smell or detector reading above zero",
+        "Sewage backup with exposure risk without PPE",
+        "Water near energized electrical equipment",
+        "Signs of a failing water heater relief valve or tank bulge"
+      ],
+      "neverGuide": [
+        "Gas piping work unless the technician confirms a gas license",
+        "Disabling a temperature and pressure relief valve",
+        "Work on a pressurized line without the shutoff confirmed closed"
+      ],
+      "visibleHazards": [
+        "water on or near electrical parts", "active leak onto a ceiling or panel", "corroded or bulging water heater tank", "sewage on floors"
+      ],
+      "advisories": [
+        "corroded fittings or green crusting on copper", "missing expansion tank where required", "slow drains on multiple fixtures", "no drain pan under a water heater"
+      ],
+      "verification": [
+        "Pressure test or visual leak check after 10 minutes",
+        "Fixtures run hot and cold, drains clear",
+        "Water heater relief valve discharge pipe in place",
+        "Work area dry"
+      ],
+      "certifications": ["Plumber license per jurisdiction", "Gas license where required"]
+    },
+    {
+      "id": "roofing",
+      "name": "Roofing",
+      "description": "Roof inspection, leak repair, shingles, flat roofs, flashing, gutters",
+      "preWorkReadings": [
+        { "key": "fall_protection", "label": "Fall protection in place", "unit": "yes/no", "requiredWhen": "any work on the roof" },
+        { "key": "weather_ok", "label": "Weather and surface conditions safe", "unit": "yes/no", "requiredWhen": "any work on the roof" }
+      ],
+      "stopRules": [
+        "No fall protection on a roof above 6 feet",
+        "Wet, icy, or frost-covered roof surface",
+        "Wind strong enough to move materials",
+        "Soft or sagging decking underfoot",
+        "Overhead power lines within 10 feet of the work area"
+      ],
+      "neverGuide": [
+        "Any roof work without fall protection",
+        "Work near overhead power lines",
+        "Structural repairs to rafters or trusses without a supervisor"
+      ],
+      "visibleHazards": [
+        "overhead power lines near the work area", "soft or sagging roof decking", "ice or wet surface", "unsecured ladder"
+      ],
+      "advisories": [
+        "lifted or missing shingles", "cracked pipe boots", "clogged gutters", "exposed nail heads", "granule loss"
+      ],
+      "verification": [
+        "Photos of every repaired area",
+        "Flashing sealed and fastened",
+        "Debris and nails cleaned from the ground",
+        "Water test when the customer allows"
+      ],
+      "certifications": ["OSHA fall protection training"]
+    },
+    {
+      "id": "cleaning",
+      "name": "Cleaning",
+      "description": "Residential and commercial cleaning, deep cleaning, carpets, windows, post-construction",
+      "preWorkReadings": [],
+      "stopRules": [
+        "Visible mold larger than about 10 square feet",
+        "Sharps, needles, or biohazard material",
+        "Suspected asbestos material that is damaged or friable",
+        "Chemical odor or symptoms from mixing products"
+      ],
+      "neverGuide": [
+        "Mixing bleach with ammonia or acids",
+        "Biohazard cleanup without the right training and PPE",
+        "Working on ladders above 6 feet without a second person"
+      ],
+      "visibleHazards": [
+        "needles or sharps", "large mold growth", "spilled chemicals", "water near outlets during cleaning"
+      ],
+      "advisories": [
+        "surfaces that need a specialty cleaner", "damaged finishes to note before cleaning", "items to move with customer permission"
+      ],
+      "verification": [
+        "Walkthrough with the customer room by room",
+        "Photos of finished areas",
+        "All products and equipment removed",
+        "Customer sign-off on any noted pre-existing damage"
+      ],
+      "certifications": []
+    },
+    {
+      "id": "auto",
+      "name": "Auto mechanic",
+      "description": "Mobile and shop auto repair, diagnostics, brakes, batteries, maintenance",
+      "preWorkReadings": [
+        { "key": "vehicle_secured", "label": "Vehicle secured (park, brake, chocks, jack stands)", "unit": "yes/no", "requiredWhen": "any work under or lifting the vehicle" },
+        { "key": "hv_system", "label": "Hybrid or EV high-voltage system present", "unit": "yes/no", "requiredWhen": "any electrical work" }
+      ],
+      "stopRules": [
+        "Working under a vehicle supported only by a jack",
+        "Fuel leak or strong fuel smell",
+        "Hybrid or EV orange high-voltage cables involved without HV training",
+        "Airbag components involved without disarming per manufacturer procedure"
+      ],
+      "neverGuide": [
+        "Work on hybrid or EV high-voltage components unless the technician confirms HV training",
+        "Airbag or SRS work without manufacturer procedure",
+        "Working under a vehicle without jack stands"
+      ],
+      "visibleHazards": [
+        "vehicle on a jack without stands", "fuel dripping", "orange high-voltage cables being handled", "battery terminal sparking"
+      ],
+      "advisories": [
+        "worn brake pads or scored rotors", "low or dark fluids", "cracked belts or hoses", "uneven tire wear"
+      ],
+      "verification": [
+        "No warning lights after the repair",
+        "Torque on wheels and fasteners to spec",
+        "Fluid levels checked",
+        "Test drive or function test when appropriate"
+      ],
+      "certifications": ["ASE where applicable", "EV high-voltage training where applicable"]
+    },
+    {
+      "id": "appliance",
+      "name": "Appliance repair",
+      "description": "Washers, dryers, refrigerators, ovens, ranges, dishwashers",
+      "preWorkReadings": [
+        { "key": "unplugged", "label": "Appliance unplugged or breaker off", "unit": "yes/no", "requiredWhen": "any internal work" },
+        { "key": "gas_detector", "label": "Combustible gas detector", "unit": "ppm or % LEL", "requiredWhen": "gas range or gas dryer" }
+      ],
+      "stopRules": [
+        "Gas smell or detector reading above zero",
+        "Burn marks or melted wiring inside the appliance",
+        "Dryer vent clogged with lint near a heat source"
+      ],
+      "neverGuide": [
+        "Gas line work unless licensed",
+        "Live testing inside an appliance without the technician confirming training",
+        "Bypassing door switches or thermal fuses"
+      ],
+      "visibleHazards": ["burn marks", "melted wiring", "lint buildup near heating elements", "water under an appliance near outlets"],
+      "advisories": ["crushed or foil dryer vent", "worn door gaskets", "missing anti-tip bracket on a range"],
+      "verification": ["Full cycle run", "No error codes", "No leaks after the cycle", "Appliance leveled and anti-tip in place"],
+      "certifications": ["EPA 608 for sealed refrigerant systems"]
+    },
+    {
+      "id": "general",
+      "name": "General field service",
+      "description": "Handyman work and any trade without a specific profile",
+      "preWorkReadings": [],
+      "stopRules": [
+        "Any gas smell, smoke, or burning smell",
+        "Exposed live wiring",
+        "Unstable ladder or work surface",
+        "Suspected asbestos or lead paint being disturbed"
+      ],
+      "neverGuide": [
+        "Gas, electrical, or plumbing work that requires a license the technician does not hold",
+        "Structural changes to load-bearing walls"
+      ],
+      "visibleHazards": ["exposed wiring", "unstable ladder", "water near electrical", "damaged materials that may contain asbestos"],
+      "advisories": ["loose railings", "missing smoke or CO detectors", "trip hazards"],
+      "verification": ["Customer walkthrough", "Photos of finished work", "Work area clean"],
+      "certifications": []
+    }
+  ]
+}

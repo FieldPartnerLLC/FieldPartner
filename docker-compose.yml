@@ -1,0 +1,20 @@
+# Runs Postgres + backend + agent locally in containers (alternative to scripts/start-local.sh).
+services:
+  db:
+    image: postgres:16
+    environment: { POSTGRES_USER: fieldpartner, POSTGRES_PASSWORD: fieldpartner, POSTGRES_DB: fieldpartner }
+    ports: ["5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+  backend:
+    build: { context: ., dockerfile: backend/Dockerfile }
+    env_file: config.env
+    environment: { DATABASE_URL: postgres://fieldpartner:fieldpartner@db:5432/fieldpartner, PORT: "8080" }
+    ports: ["8080:8080"]
+    depends_on: [db]
+  agent:
+    build: { context: agent }
+    env_file: config.env
+    environment: { BACKEND_URL: http://backend:8080 }
+    depends_on: [backend]
+volumes:
+  pgdata: {}

@@ -1,0 +1,132 @@
+"""Timing and gating rules for the assistant. Pure logic with an injectable clock, unit tested."""
+
+from __future__ import annotations
+
+import time
+from dataclasses import dataclass, field
+from typing import Callable
+
+
+@dataclass
+class AssistantGate:
+    """
+    The assistant is silent and deaf by default. It becomes active when the technician
+    says the wake phrase or presses the button, and stays active through a follow-up
+    window after it finishes speaking. Video frames go to the model only while active.
+    """
+
+    follow_up_seconds: float = 20.0
+    max_active_seconds: float = 180.0
+    clock: Callable[[], float] = time.monotonic
+
+    active: bool = False
+    camera_allowed: bool = True
+    expert_live: bool = False
+    _activated_at: float = 0.0
+    _last_activity: float = 0.0
+    _agent_speaking: bool = False
+    _user_speaking: bool = False
+
+    def activate(self) -> None:
+        now = self.clock()
+        self.active = True
+        self._activated_at = now
+        self._last_activity = now
+
+    def deactivate(self) -> None:
+        self.active = False
+        self._agent_speaking = False
+        self._user_speaking = False
+
+    def on_agent_speaking(self, speaking: bool) -> None:
+        self._agent_speaking = speaking
+        self._last_activity = self.clock()
+
+    def on_user_speaking(self, speaking: bool) -> None:
+        self._user_speaking = speaking
+        if self.active:
+            self._last_activity = self.clock()
+
+    def should_close(self) -> bool:
+        """True when the follow-up window has passed with nobody talking."""
+        if not self.active:
+            return False
+        now = self.clock()
+        if now - self._activated_at > self.max_active_seconds and not self._agent_speaking:
+            return True
+        if self._agent_speaking or self._user_speaking:
+            return False
+        return now - self._last_activity > self.follow_up_seconds
+
+    def frames_to_model(self) -> bool:
+        return self.active and self.camera_allowed and not self.expert_live
+
+
+@dataclass
+class GatedSampler:
+    """Video sampler for AgentSession: 1 frame/second while active, none otherwise."""
+
+    gate: AssistantGate
+    fps: float = 1.0
+    clock: Callable[[], float] = time.monotonic
+    _last: float | None = None
+    force_next: bool = False
+
+    def __call__(self, frame, session) -> bool:  # noqa: ANN001 - LiveKit types
+        if not self.gate.frames_to_model():
+            return False
+        now = self.clock()
+        if self.force_next or self._last is None or now - self._last >= 1.0 / self.fps:
+            self._last = now
+            self.force_next = False
+            return True
+        return False
+
+
+@dataclass
+class SafetyDeduper:
+    """Stops the watcher from repeating the same warning every 5 seconds."""
+
+    repeat_after_seconds: float = 120.0
+    clock: Callable[[], float] = time.monotonic
+    _seen: dict[str, float] = field(default_factory=dict)
+
+    @staticmethod
+    def _key(level: str, reason: str) -> str:
+        words = sorted(set(w for w in reason.lower().split() if len(w) > 3))
+        return level + ":" + " ".join(words[:6])
+
+    def should_report(self, level: str, reason: str) -> bool:
+        if level == "none":
+            return False
+        key = self._key(level, reason)
+        now = self.clock()
+        last = self._seen.get(key)
+        if last is not None and now - last < self.repeat_after_seconds:
+            return False
+        self._seen[key] = now
+        return True
+
+
+@dataclass
+class WatcherBudget:
+    """
+    Caps how often frames go to the hazard model. Skips checks while the camera is
+    paused, the frame is stale (glasses off or folded), or the same scene repeats.
+    """
+
+    interval_seconds: float = 5.0
+    max_frame_age_seconds: float = 3.0
+    clock: Callable[[], float] = time.monotonic
+    _last_check: float = 0.0
+
+    def due(self, frame_arrived_at: float, camera_allowed: bool) -> bool:
+        now = self.clock()
+        if not camera_allowed:
+            return False
+        if frame_arrived_at <= 0 or now - frame_arrived_at > self.max_frame_age_seconds:
+            return False
+        if now - self._last_check < self.interval_seconds:
+            return False
+        self._last_check = now
+        return True

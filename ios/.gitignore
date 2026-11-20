@@ -1,0 +1,5 @@
+Config/Local.xcconfig
+FieldPartner.xcodeproj/
+build/
+DerivedData/
+*.xcuserstate

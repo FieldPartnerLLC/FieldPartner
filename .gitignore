@@ -1,0 +1,13 @@
+node_modules/
+dist/
+data/
+logs/
+config.env
+.venv/
+__pycache__/
+*.pyc
+.env
+ios/Config/Local.xcconfig
+ios/FieldPartner.xcodeproj/
+ios/LinuxCheck/.build/
+.DS_Store

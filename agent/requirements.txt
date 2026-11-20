@@ -1,0 +1,6 @@
+livekit-agents[images]==1.8.13
+livekit-plugins-google==1.8.13
+google-genai==3.6.1
+aiohttp>=3.9
+Pillow>=10.0
+python-dotenv>=1.0
