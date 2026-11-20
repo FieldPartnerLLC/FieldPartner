@@ -57,9 +57,13 @@ services:
     runtime: docker
     dockerfilePath: ./agent/Dockerfile
     dockerContext: ./agent
-    plan: starter # move to "standard" (2 GB) if the logs show out-of-memory restarts
+    plan: standard # 2 GB. Starter (512 MB) runs out of memory: each live visit needs about 430 MB on top of 210 MB base
     autoDeploy: true
     envVars:
+      - key: AGENT_EXECUTOR # thread = all visits share one process (about 3 at once in 2 GB)
+        value: thread
+      - key: AGENT_IDLE_PROCESSES
+        value: "1"
       - key: BACKEND_URL # private network address of the API, no public hop
         fromService: { type: web, name: fieldpartner-api, property: hostport }
       - key: AGENT_SERVICE_TOKEN

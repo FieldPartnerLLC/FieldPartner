@@ -18,10 +18,10 @@ So the plan is: **backend, agent and database on Render** (one file, `render.yam
 |---|---|---|
 | Backend API | Starter (always on, 512 MB) | $7 |
 | Disk for recordings | 10 GB | $2.50 |
-| AI agent worker | Starter (move to Standard, $25, if the logs show memory restarts) | $7 |
+| AI agent worker | Standard (2 GB). Starter's 512 MB is not enough: the agent uses about 210 MB idle plus about 430 MB per live visit | $25 |
 | Postgres database | Basic-256mb | $6 |
 | Expert portal | Static site | $0 |
-| **Total to start** | | **about $22.50** |
+| **Total to start** | | **about $40.50** |
 
 LiveKit Cloud and Gemini are billed separately by usage, the same as when testing on your Mac.
 
@@ -33,17 +33,14 @@ Both your Mac and Render run an AI agent with the same name. If they share one L
 
 ### 1. Put the code on GitHub (Render deploys from GitHub)
 
-1. Go to https://github.com/new. Name: `fieldpartner`. Choose **Private**. Click Create repository.
-2. In Terminal:
-   ```
-   cd ~/Documents/FieldPartner
-   git add -A
-   git commit -m "FieldPartner"
-   git branch -M main
-   git remote add origin https://github.com/<your-github-name>/fieldpartner.git
-   git push -u origin main
-   ```
-   `config.env`, `data/` and `android/local.properties` are in `.gitignore`, so no keys or test data are uploaded. Check with `git status` before pushing if you want to be sure.
+The code lives at https://github.com/FieldPartnerLLC/FieldPartner (private). To push new changes:
+```
+cd ~/Documents/FieldPartner
+git add -A
+git commit -m "describe the change"
+git push
+```
+`config.env`, `data/`, `android/local.properties` and APK files are in `.gitignore`, so no keys, test data or builds are uploaded.
 
 ### 2. Create the second LiveKit project
 
@@ -53,11 +50,11 @@ Both your Mac and Render run an AI agent with the same name. If they share one L
 ### 3. Deploy on Render
 
 1. https://dashboard.render.com > sign up with your GitHub account.
-2. **New** > **Blueprint** > connect GitHub > pick the `fieldpartner` repo > **Connect**.
+2. **New** > **Blueprint** > **Connect GitHub**. When GitHub asks where to install Render, pick the **FieldPartnerLLC** organization (not your personal account) and allow the `FieldPartner` repo. Back in Render, pick `FieldPartnerLLC/FieldPartner` > **Connect**. If the repo is not listed, go to https://github.com/organizations/FieldPartnerLLC/settings/installations > Render > Configure and add the repo.
 3. Render reads `render.yaml` and lists 4 things: `fieldpartner-db`, `fieldpartner-api`, `fieldpartner-agent`, `fieldpartner-portal`. It asks for the values marked secret. Fill in:
    - `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET`: from step 2 (both on the API and the agent).
    - `GOOGLE_API_KEY`: your Gemini key (both on the API and the agent).
-   - `PUBLIC_API_URL`: `https://fieldpartner-api.onrender.com` (Render shows the exact address on the service page after the first deploy; fix it there if it differs).
+   - `PUBLIC_API_URL`: `https://fieldpartner-api.onrender.com`. Render may add a suffix if that name is taken (for example `fieldpartner-api-x7k2.onrender.com`). After the first deploy, copy the real address from the top of the fieldpartner-api page and fix `PUBLIC_API_URL` and the portal's `VITE_API_URL` if they differ, then redeploy the portal (Manual Deploy > Deploy latest commit).
    - `PORTAL_URL` and the portal's `VITE_API_URL`: `https://fieldpartner-portal.onrender.com` and `https://fieldpartner-api.onrender.com`.
    - Twilio values: leave empty for now (paging then shows in the portal only).
 4. Click **Apply**. The first build takes 5 to 10 minutes.
@@ -77,7 +74,7 @@ https://cloud.livekit.io > `fieldpartner-prod` > Settings > **Webhooks** > Add: 
 
 ### 6. Point the apps at the live server
 
-- **Android:** `./scripts/build-android.sh phone https://fieldpartner-api.onrender.com` makes `FieldPartner-android.apk` with the live address built in. Already-installed apps can also just change it: sign out, edit **Server address** on the sign-in screen.
+- **Android:** `./scripts/build-android.sh phone https://fieldpartner-api.onrender.com` makes `FieldPartner-android-online.apk` with the live address built in. Already-installed apps can also just change it: sign out, edit **Server address** on the sign-in screen.
 - **iPhone:** in `ios/Config/Local.xcconfig` set `FP_API_BASE_URL = https:/$()/fieldpartner-api.onrender.com`, then build again in Xcode. Or change the server field on the sign-in screen.
 - Turn off plain http for the store builds: Android `app/src/main/res/xml/network_security_config.xml` set `cleartextTrafficPermitted="false"`; iPhone remove the local network exception in `Info.plist`.
 
@@ -106,4 +103,4 @@ Accounts are separate: an account created on the Mac does not exist on the live 
 ## Backups and limits
 
 - Render backs up paid Postgres daily. Recordings on the disk are not backed up: for more than a pilot, set the `S3_*` variables to an S3 or Cloudflare R2 bucket and the disk is no longer used.
-- A service with a disk runs as one instance. That is enough for dozens of technicians. Beyond that, move recordings to S3 and add instances.
+- A service with a disk runs as one instance. That is enough for dozens of technicians. The agent on Standard handles about 3 visits at the same moment; for more, raise its plan or add instances. Beyond that, move recordings to S3 and add instances.

@@ -422,4 +422,19 @@ async def entrypoint(ctx: JobContext) -> None:
 
 
 if __name__ == "__main__":
-    cli.run_app(WorkerOptions(entrypoint_fnc=entrypoint, agent_name=os.environ.get("AGENT_NAME", "fieldpartner-agent")))
+    from livekit.agents import JobExecutorType
+
+    # Small hosts (Render Starter = 512 MB): run visits as threads in one process and keep
+    # one warm slot. LiveKit's default starts up to 4 idle processes, which needs about 1 GB.
+    opts = {}
+    if os.environ.get("AGENT_EXECUTOR", "").lower() == "thread":
+        opts["job_executor_type"] = JobExecutorType.THREAD
+    if os.environ.get("AGENT_IDLE_PROCESSES"):
+        opts["num_idle_processes"] = int(os.environ["AGENT_IDLE_PROCESSES"])
+    cli.run_app(
+        WorkerOptions(
+            entrypoint_fnc=entrypoint,
+            agent_name=os.environ.get("AGENT_NAME", "fieldpartner-agent"),
+            **opts,
+        )
+    )

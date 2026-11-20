@@ -15,13 +15,13 @@ if ! /usr/libexec/java_home -v 17+ >/dev/null 2>&1 && [ -d "/Applications/Androi
 fi
 [ -f local.properties ] || { echo "Run ./scripts/setup-mac.sh first."; exit 1; }
 
-set_prop() { if grep -q "^$1=" local.properties; then sed -i '' "s|^$1=.*|$1=$2|" local.properties; else echo "$1=$2" >> local.properties; fi; }
+set_prop() { if grep -q "^$1=" local.properties; then sed "s|^$1=.*|$1=$2|" local.properties > local.properties.tmp && mv local.properties.tmp local.properties; else echo "$1=$2" >> local.properties; fi; }
 
 if [ "${1:-debug}" = "phone" ]; then
   if [ -n "${2:-}" ]; then set_prop fp_api_base_url "${2%/}"; fi
   set_prop fp_abi_filters arm64-v8a
   ./gradlew assembleDebug
-  sed -i '' "/^fp_abi_filters=/d" local.properties
+  sed "/^fp_abi_filters=/d" local.properties > local.properties.tmp && mv local.properties.tmp local.properties
   URL_NOW="$(grep '^fp_api_base_url=' local.properties | cut -d= -f2-)"
   case "$URL_NOW" in https://*) OUT="FieldPartner-android-online.apk" ;; *) OUT="FieldPartner-android-offline.apk" ;; esac
   cp app/build/outputs/apk/debug/app-debug.apk "$ROOT/$OUT"
