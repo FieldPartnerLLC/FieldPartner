@@ -9,5 +9,5 @@ __pycache__/
 .env
 ios/Config/Local.xcconfig
 ios/FieldPartner.xcodeproj/
-ios/LinuxCheck/.build/
+ios/.build/
 .DS_Store

@@ -22,7 +22,7 @@ pause-camera privacy controls, the offline EventQueue, or the UploadManager's Wi
 
 - Backend: `cd backend && npm test` (embedded DB). Against Postgres: `TEST_DATABASE_URL=postgres://... npm test`.
 - Agent: `cd agent && ./.venv/bin/python -m pytest -q`.
-- iOS core logic without Xcode: `cd ios/LinuxCheck && swift test`.
+- iOS core logic without Xcode: `cd ios && swift test`.
 - Portal: `cd portal && npx tsc -p tsconfig.json && npx vite build`.
 
 ## Protocol between phone and agent (LiveKit text streams)

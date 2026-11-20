@@ -1,1 +1,0 @@
-../../../FieldPartnerTests/CommandParserTests.swift

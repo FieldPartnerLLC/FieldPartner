@@ -3,3 +3,4 @@ FieldPartner.xcodeproj/
 build/
 DerivedData/
 *.xcuserstate
+.build/
