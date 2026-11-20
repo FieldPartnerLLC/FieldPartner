@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-  <color name="fp_blue">#143A5A</color>
+  <!-- Keep in step with FpColors in ui/Theme.kt. -->
+  <color name="fp_blue">#1462E3</color>
   <color name="fp_orange">#FFA000</color>
+  <color name="fp_canvas">#F0F2F5</color>
 </resources>

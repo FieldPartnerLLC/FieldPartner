@@ -66,12 +66,14 @@ class ScreenshotTest {
       compose.activity.vm.logout()
       compose.activity.vm.app.settings.setupDoneFor = null
     }
+    compose.waitForIdle()
+    revealServer(compose, "serverToggle")
     compose.onNodeWithTag("server").performTextReplacement(server.url("/").toString())
     compose.onNodeWithTag("email").performTextInput("tech@fieldpartner.local")
     compose.onNodeWithTag("password").performTextInput("secret")
     shot("01-login")
     compose.onNodeWithTag("signin").performScrollTo().performClick()
-    waitText("Setup 1 of 4")
+    waitText("Step 1 of 4")
     shot("02-setup-permissions")
     compose.onNodeWithTag("permissionsNext").performScrollTo()
     compose.runOnUiThread { compose.activity.vm.app.settings.update { it.copy(videoSource = com.fieldpartner.app.VideoSource.GLASSES) } }
@@ -81,7 +83,17 @@ class ScreenshotTest {
     compose.runOnUiThread { compose.activity.vm.finishSetup() }
     waitText("No heat upstairs")
     shot("03-jobs")
-    compose.onNodeWithTag("haveInvite", useUnmergedTree = true).let { }
+    compose.onNodeWithTag("tab_GLASSES").performClick()
+    waitText("What you wear on the job")
+    shot("08-glasses")
+    compose.onNodeWithTag("tab_MENU").performClick()
+    waitText("AI partner")
+    shot("09-menu")
+    compose.onNodeWithTag("tab_JOBS").performClick()
+    waitText("No heat upstairs")
+    compose.runOnUiThread { compose.activity.vm.push(Screen.WalkIn) }
+    waitText("Create job")
+    shot("10-walk-in")
   }
 
   @Test fun captureSetupSteps() {
@@ -90,17 +102,19 @@ class ScreenshotTest {
       compose.activity.vm.logout()
       compose.activity.vm.app.settings.setupDoneFor = null
     }
+    compose.waitForIdle()
+    revealServer(compose, "serverToggle")
     compose.onNodeWithTag("server").performTextReplacement(server.url("/").toString())
     compose.onNodeWithTag("email").performTextInput("tech@fieldpartner.local")
     compose.onNodeWithTag("password").performTextInput("secret")
     compose.onNodeWithTag("signin").performScrollTo().performClick()
-    waitText("Setup 1 of 4")
+    waitText("Step 1 of 4")
     compose.onNodeWithTag("permissionsNext").performScrollTo().performClick()
-    waitText("Setup 2 of 4")
+    waitText("Step 2 of 4")
     compose.onNodeWithTag("src_GLASSES").performClick()
     shot("04-setup-camera")
     compose.onNodeWithTag("cameraNext").performScrollTo().performClick()
-    waitText("Setup 3 of 4")
+    waitText("Step 3 of 4")
     shot("05-setup-connect")
     compose.runOnUiThread { compose.activity.vm.finishSetup() }
     waitText("No heat upstairs")

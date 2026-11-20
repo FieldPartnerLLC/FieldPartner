@@ -1,6 +1,13 @@
 package com.fieldpartner.app.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.outlined.Email
+import androidx.compose.material.icons.outlined.ErrorOutline
+import androidx.compose.material.icons.outlined.Sms
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -55,30 +62,46 @@ fun ReportScreen(vm: AppViewModel, visitId: String) {
   }
 
   FpScaffold("Service report", onBack = { vm.back() }) { mod ->
-    Column(mod.padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    PageColumn(mod) {
       val r = report
       if (r == null) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-          if (status != "failed") CircularProgressIndicator(Modifier.width(24.dp))
-          Text(if (status == "failed") "  Drafting failed." else "  The AI is drafting the report...")
+        SectionCard {
+          if (status == "failed") {
+            EmptyState(Icons.Outlined.ErrorOutline, "Drafting failed", "The AI could not draft this report. Try again, or write it on the portal.") {
+              PrimaryButton("Try again", onClick = { status = "generating"; attempt++ })
+            }
+          } else {
+            Loading()
+            Text("The AI is drafting the report from this visit. This takes about 30 seconds.", style = MaterialTheme.typography.bodyMedium, color = Fp.palette.muted, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
+          }
         }
-        if (status == "failed") OutlinedButton(onClick = { status = "generating"; attempt++ }) { Text("Try again") }
-        return@Column
+        return@PageColumn
       }
-      Field("Summary", r.summary) { report = r.copy(summary = it) }
-      Field("Customer complaint", r.customerComplaint) { report = r.copy(customerComplaint = it) }
-      Field("Equipment", r.equipment) { report = r.copy(equipment = it) }
-      ListField("Safety readings", r.safetyReadings) { report = r.copy(safetyReadings = it) }
-      ListField("Findings", r.findings) { report = r.copy(findings = it) }
-      ListField("Work performed", r.workPerformed) { report = r.copy(workPerformed = it) }
-      ListField("Parts used", r.partsUsed) { report = r.copy(partsUsed = it) }
-      ListField("Readings", r.readings) { report = r.copy(readings = it) }
-      ListField("Safety events", r.safetyEvents) { report = r.copy(safetyEvents = it) }
-      ListField("Customer decisions", r.customerDecisions) { report = r.copy(customerDecisions = it) }
-      ListField("Follow-up", r.followUp) { report = r.copy(followUp = it) }
-      SwitchRow("Send by text message", sendSms) { sendSms = it }
-      SwitchRow("Send by email with PDF", sendEmail) { sendEmail = it }
-      Button(
+      Banner("Check and correct the draft. Nothing reaches the customer until you approve it.", BannerKind.INFO)
+      SectionCard(title = "Overview") {
+        Field("Summary", r.summary) { report = r.copy(summary = it) }
+        Field("Customer complaint", r.customerComplaint) { report = r.copy(customerComplaint = it) }
+        Field("Equipment", r.equipment) { report = r.copy(equipment = it) }
+      }
+      SectionCard(title = "Work") {
+        ListField("Findings", r.findings) { report = r.copy(findings = it) }
+        ListField("Work performed", r.workPerformed) { report = r.copy(workPerformed = it) }
+        ListField("Parts used", r.partsUsed) { report = r.copy(partsUsed = it) }
+        ListField("Readings", r.readings) { report = r.copy(readings = it) }
+      }
+      SectionCard(title = "Safety and follow-up") {
+        ListField("Safety readings", r.safetyReadings) { report = r.copy(safetyReadings = it) }
+        ListField("Safety events", r.safetyEvents) { report = r.copy(safetyEvents = it) }
+        ListField("Customer decisions", r.customerDecisions) { report = r.copy(customerDecisions = it) }
+        ListField("Follow-up", r.followUp) { report = r.copy(followUp = it) }
+      }
+      SectionCard(title = "Send to the customer", padding = PaddingValues(top = 16.dp, bottom = 4.dp)) {
+        SwitchRow("Text message", sendSms, subtitle = "A link to the report", icon = Icons.Outlined.Sms) { sendSms = it }
+        RowDivider()
+        SwitchRow("Email with PDF", sendEmail, subtitle = "The full report attached", icon = Icons.Outlined.Email) { sendEmail = it }
+      }
+      PrimaryButton(
+        "Approve and send",
         onClick = {
           busy = true
           scope.launch {
@@ -92,26 +115,29 @@ fun ReportScreen(vm: AppViewModel, visitId: String) {
             busy = false
           }
         },
-        enabled = !busy,
-        modifier = Modifier.fillMaxWidth().height(52.dp).testTag("approve"),
-      ) { if (busy) CircularProgressIndicator(Modifier.width(22.dp)) else Text("Approve and send") }
-      result?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+        icon = Icons.AutoMirrored.Filled.Send,
+        loading = busy,
+        tall = true,
+        modifier = Modifier.testTag("approve"),
+      )
+      result?.let { Banner(it, if (it.startsWith("Sent") || it.startsWith("Approved")) BannerKind.OK else BannerKind.ERROR) }
     }
   }
 }
 
 @Composable
 private fun Field(label: String, value: String, onChange: (String) -> Unit) {
-  OutlinedTextField(value, onChange, label = { Text(label) }, modifier = Modifier.fillMaxWidth(), minLines = 1)
+  FpTextField(value, onChange, label, singleLine = false)
 }
 
 @Composable
 private fun ListField(label: String, items: List<String>, onChange: (List<String>) -> Unit) {
-  OutlinedTextField(
+  FpTextField(
     value = items.joinToString("\n"),
     onValueChange = { t -> onChange(t.split("\n")) },
-    label = { Text("$label (one per line)") },
-    modifier = Modifier.fillMaxWidth(),
+    label = label,
+    supportingText = "One per line",
+    singleLine = false,
     minLines = 2,
   )
 }

@@ -10,11 +10,17 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fieldpartner.app.core.Job
 import com.fieldpartner.app.ui.AppViewModel
 import com.fieldpartner.app.ui.FpTheme
+import com.fieldpartner.app.ui.GlassesScreen
 import com.fieldpartner.app.ui.JobDetailScreen
 import com.fieldpartner.app.ui.JobsScreen
 import com.fieldpartner.app.ui.JoinScreen
@@ -77,19 +83,28 @@ class MainActivity : ComponentActivity() {
     setContent {
       FpTheme {
         val state by vm.state.collectAsStateWithLifecycle()
-        BackHandler(enabled = state.stack.size > 1 && state.screen !is Screen.Visit) { vm.back() }
+        BackHandler(enabled = state.canGoBack) { vm.back() }
         // Back during a visit must not close the app and kill the visit: send the app to the background instead.
         BackHandler(enabled = state.screen is Screen.Visit) { moveTaskToBack(true) }
-        when (val s = state.screen) {
-          Screen.Login -> LoginScreen(vm)
-          Screen.Join -> JoinScreen(vm)
-          Screen.Setup -> SetupScreen(vm, this)
-          Screen.Jobs -> JobsScreen(vm)
-          is Screen.JobDetail -> JobDetailScreen(vm, s.job, onStart = { requestVisit(it) })
-          Screen.WalkIn -> WalkInScreen(vm)
-          Screen.Settings -> SettingsScreen(vm, this)
-          Screen.Visit -> vm.visit?.let { VisitScreen(vm, it) } ?: JobsScreen(vm)
-          is Screen.Report -> ReportScreen(vm, s.visitId)
+        // Short fade between screens so navigation feels smooth, not jumpy.
+        AnimatedContent(
+          targetState = state.screen,
+          transitionSpec = { fadeIn(tween(160)) togetherWith fadeOut(tween(90)) },
+          contentKey = { it::class to (it as? Screen.JobDetail)?.job?.id },
+          label = "screen",
+        ) { screen ->
+          when (val s = screen) {
+            Screen.Login -> LoginScreen(vm)
+            Screen.Join -> JoinScreen(vm)
+            Screen.Setup -> SetupScreen(vm, this@MainActivity)
+            Screen.Jobs -> JobsScreen(vm, onStart = { requestVisit(it) })
+            is Screen.JobDetail -> JobDetailScreen(vm, s.job, onStart = { requestVisit(it) })
+            Screen.WalkIn -> WalkInScreen(vm)
+            Screen.Settings -> SettingsScreen(vm, this@MainActivity)
+            Screen.Glasses -> GlassesScreen(vm, this@MainActivity)
+            Screen.Visit -> vm.visit?.let { VisitScreen(vm, it) } ?: JobsScreen(vm)
+            is Screen.Report -> ReportScreen(vm, s.visitId)
+          }
         }
       }
     }

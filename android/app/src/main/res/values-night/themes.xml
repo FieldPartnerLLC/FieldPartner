@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+  <style name="Theme.FieldPartner" parent="android:Theme.Material.NoActionBar">
+    <item name="android:statusBarColor">#242526</item>
+    <item name="android:windowLightStatusBar">false</item>
+    <item name="android:navigationBarColor">#242526</item>
+    <item name="android:windowLightNavigationBar">false</item>
+    <item name="android:windowBackground">@color/fp_canvas</item>
+  </style>
+</resources>

@@ -73,6 +73,7 @@ class ScreenFlowTest {
     app.settings.setupDoneFor = "u1" // the demo user already finished first-run setup
     app.settings.update { it.copy(wakePhraseOverride = "") }
     compose.waitForIdle()
+    revealServer(compose, "serverToggle")
     compose.onNodeWithTag("server").performTextReplacement(server.url("/").toString())
   }
 
@@ -112,7 +113,7 @@ class ScreenFlowTest {
     compose.onNodeWithContentDescription("Back").performClick()
 
     // Walk-in job.
-    waitForText("Today")
+    waitForText("Your jobs")
     compose.onNodeWithContentDescription("Walk-in job").performClick()
     waitForText("Create job")
     compose.onNodeWithText("Job title, e.g. No heat").performTextInput("Leaking water heater")
@@ -122,11 +123,11 @@ class ScreenFlowTest {
     compose.onNodeWithText("Leaking water heater").assertIsDisplayed()
     compose.onNodeWithContentDescription("Back").performClick()
 
-    // Settings: wake phrase override is saved.
-    waitForText("Today")
-    compose.onNodeWithContentDescription("Settings").performClick()
-    waitForText("Video source")
-    compose.onNodeWithText("Wake phrase (blank = company default)").performScrollTo().performTextReplacement("tech assist")
+    // Menu tab: wake phrase override is saved.
+    waitForText("Your jobs")
+    compose.onNodeWithTag("tab_MENU").performClick()
+    waitForText("AI partner")
+    compose.onNodeWithText("Wake phrase").performScrollTo().performTextReplacement("tech assist")
     compose.onNodeWithText("Save").performScrollTo().performClick()
     val app = compose.activity.vm.app
     assertEquals("tech assist", app.settings.current.wakePhraseOverride)
@@ -146,6 +147,7 @@ class ScreenFlowTest {
     )
     compose.onNodeWithTag("haveInvite").performScrollTo().performClick()
     waitForText("Join your company")
+    revealServer(compose, "joinServerToggle")
     compose.onNodeWithTag("joinServer").performTextReplacement(server.url("/").toString())
     compose.onNodeWithTag("inviteCode").performTextInput("zzzz-9999")
     compose.onNodeWithTag("checkCode").performScrollTo().performClick()
@@ -153,18 +155,18 @@ class ScreenFlowTest {
     compose.onNodeWithTag("inviteCode").performTextReplacement("abcd-2345")
     compose.onNodeWithTag("checkCode").performScrollTo().performClick()
     waitForText("Hudson Valley HVAC")
-    compose.onNodeWithText("invited Jordan Tech", substring = true).assertIsDisplayed()
+    compose.onNodeWithText("invited Jordan Tech", substring = true).performScrollTo().assertIsDisplayed()
     compose.onNodeWithTag("newPassword").performTextInput("jordan-pass-2026")
     compose.onNodeWithTag("newPassword2").performTextInput("jordan-pass-2026")
     compose.onNodeWithTag("createAccount").performScrollTo().performClick()
 
     // First-run setup starts automatically for a new user.
-    waitForText("Setup 1 of 4")
+    waitForText("Step 1 of 4")
     compose.onNodeWithTag("permissionsNext").performScrollTo().performClick()
-    waitForText("Setup 2 of 4")
+    waitForText("Step 2 of 4")
     compose.onNodeWithTag("src_PHONE_CAMERA").performScrollTo().performClick()
     compose.onNodeWithTag("cameraNext").performScrollTo().performClick()
-    waitForText("Setup 4 of 4")
+    waitForText("Step 4 of 4")
     compose.onNodeWithTag("testNext").performScrollTo().performClick()
     waitForText("You're ready")
     compose.onNodeWithText("what does this error code mean", substring = true).performScrollTo().assertIsDisplayed()
@@ -186,11 +188,11 @@ class ScreenFlowTest {
     compose.onNodeWithTag("email").performTextInput("tech@fieldpartner.local")
     compose.onNodeWithTag("password").performTextInput("secret")
     compose.onNodeWithTag("signin").performScrollTo().performClick()
-    waitForText("Setup 1 of 4")
+    waitForText("Step 1 of 4")
     compose.onNodeWithTag("permissionsNext").performScrollTo().performClick()
     compose.onNodeWithTag("src_GLASSES").performScrollTo().performClick()
     compose.onNodeWithTag("cameraNext").performScrollTo().performClick()
-    waitForText("Setup 3 of 4")
+    waitForText("Step 3 of 4")
     for (t in listOf("Meta AI app installed", "Developer Mode on", "FieldPartner connected", "Glasses camera allowed", "Glasses found")) {
       compose.onNodeWithText(t, substring = true).performScrollTo().assertIsDisplayed()
     }
@@ -203,5 +205,13 @@ class ScreenFlowTest {
     const val USER = """{"id":"u1","name":"Sam Tech","email":"tech@fieldpartner.local","role":"tech","trades":["hvac"],"companyId":"c1"}"""
     const val COMPANY = """{"id":"c1","name":"Demo Field Services","wake_phrase":"hey dispatch","co_stop_ppm":35,"diagnostic_fee_cents":8900}"""
     const val JOB = """{"id":"j1","company_id":"c1","trade":"hvac","title":"No heat upstairs","complaint":"Furnace runs then shuts off","address":"12 Elm St","scheduled_at":"2026-11-20T15:00:00Z","status":"scheduled","customer_name":"Alex Rivera","customer_phone":"+15555550111"}"""
+  }
+}
+
+/** The server field is hidden behind a link when the build points at the live https server. */
+internal fun revealServer(compose: androidx.compose.ui.test.junit4.AndroidComposeTestRule<*, *>, toggleTag: String) {
+  if (compose.onAllNodes(androidx.compose.ui.test.hasTestTag(toggleTag)).fetchSemanticsNodes().isNotEmpty()) {
+    compose.onNodeWithTag(toggleTag).performScrollTo().performClick()
+    compose.waitForIdle()
   }
 }

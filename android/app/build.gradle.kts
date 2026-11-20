@@ -23,8 +23,8 @@ android {
     applicationId = prop("fp_application_id", "com.fieldpartner.app")
     minSdk = 31 // Meta DAT requires Android 12+
     targetSdk = 36
-    versionCode = prop("fp_version_code", "1").toInt()
-    versionName = prop("fp_version_name", "1.0.0")
+    versionCode = prop("fp_version_code", "2").toInt()
+    versionName = prop("fp_version_name", "1.1.0")
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
     // Emulator reaches the host Mac at 10.0.2.2. A real phone needs the Mac's LAN IP.

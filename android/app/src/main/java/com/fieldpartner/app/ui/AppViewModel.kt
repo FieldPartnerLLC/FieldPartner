@@ -27,6 +27,7 @@ sealed class Screen {
   data class JobDetail(val job: Job) : Screen()
   data object WalkIn : Screen()
   data object Settings : Screen()
+  data object Glasses : Screen()
   data object Visit : Screen()
   data class Report(val visitId: String) : Screen()
 }
@@ -46,6 +47,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
   ) {
     val screen: Screen
       get() = stack.last()
+
+    /** Back goes one screen up, or from the Glasses and Menu tabs to Jobs. */
+    val canGoBack: Boolean
+      get() = screen !is Screen.Visit && (stack.size > 1 || screen == Screen.Glasses || screen == Screen.Settings)
   }
 
   private val _state = MutableStateFlow(State())
@@ -105,10 +110,22 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
 
   fun push(s: Screen) = _state.update { it.copy(stack = it.stack + s, error = null) }
 
+  /** Switch main tab. Each tab starts its own stack, like a social app's bottom bar. */
+  fun openTab(tab: Tab) {
+    _state.update { it.copy(stack = listOf(tab.screen), error = null) }
+    if (tab == Tab.JOBS) refreshJobs()
+  }
+
   fun back(): Boolean {
     val st = _state.value
     if (st.screen is Screen.Visit) return false // ending a visit is explicit
-    if (st.stack.size <= 1) return false
+    if (st.stack.size <= 1) {
+      if (st.screen == Screen.Glasses || st.screen == Screen.Settings) {
+        openTab(Tab.JOBS)
+        return true
+      }
+      return false
+    }
     _state.update { it.copy(stack = it.stack.dropLast(1), error = null) }
     return true
   }

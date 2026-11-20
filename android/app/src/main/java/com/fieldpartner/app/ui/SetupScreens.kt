@@ -11,6 +11,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.outlined.Badge
+import androidx.compose.material.icons.outlined.Dns
+import androidx.compose.material.icons.outlined.Lock
+import androidx.compose.material.icons.outlined.Visibility
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -88,66 +94,89 @@ const val META_AI_PACKAGE = "com.facebook.stella"
 fun JoinScreen(vm: AppViewModel) {
   val state by vm.state.collectAsStateWithLifecycle()
   var server by remember { mutableStateOf(vm.app.settings.current.apiBaseUrl) }
+  var showServer by remember { mutableStateOf(!vm.app.settings.current.apiBaseUrl.startsWith("https://")) }
   var code by remember { mutableStateOf("") }
   var info by remember { mutableStateOf<InviteInfo?>(null) }
   var pw by remember { mutableStateOf("") }
   var pw2 by remember { mutableStateOf("") }
   FpScaffold("Join your company", onBack = { vm.back() }) { mod ->
-    Column(mod.padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-      Text("Your manager sent you an 8-letter invite code by text, WhatsApp or email.", style = MaterialTheme.typography.bodyLarge)
-      OutlinedTextField(server, { server = it }, label = { Text("Server address (from the invite message)") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("joinServer"))
-      OutlinedTextField(
-        code,
-        { code = it.uppercase().take(12); info = null },
-        label = { Text("Invite code, e.g. ABCD-2345") },
-        singleLine = true,
-        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
-        modifier = Modifier.fillMaxWidth().testTag("inviteCode"),
-      )
-      if (info == null) {
-        Button(onClick = { vm.checkInvite(code, server) { info = it } }, enabled = !state.busy && code.count { it.isLetterOrDigit() } >= 8, modifier = Modifier.fillMaxWidth().height(52.dp).testTag("checkCode")) {
-          if (state.busy) CircularProgressIndicator(Modifier.width(22.dp)) else Text("Check code")
-        }
-      }
-      info?.let { i ->
-        Card(Modifier.fillMaxWidth()) {
-          Column(Modifier.padding(14.dp)) {
-            Text(i.companyName, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-            Text("invited ${i.name} (${i.email}) as ${if (i.role == "tech") "a technician" else "an ${i.role}"}.")
-            Text("Not you? Ask your manager for your own code.", style = MaterialTheme.typography.bodySmall)
+    PageColumn(mod) {
+      SectionCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          IconBadge(Icons.Outlined.Badge, size = 48.dp)
+          Spacer(Modifier.width(12.dp))
+          Column(Modifier.weight(1f)) {
+            Text("Enter your invite code", style = MaterialTheme.typography.titleMedium, color = Fp.palette.ink)
+            Text("Your manager sent it by email, text or WhatsApp.", style = MaterialTheme.typography.bodySmall, color = Fp.palette.muted)
           }
         }
-        OutlinedTextField(pw, { pw = it }, label = { Text("Choose a password (10+ characters)") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth().testTag("newPassword"))
-        OutlinedTextField(pw2, { pw2 = it }, label = { Text("Password again") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth().testTag("newPassword2"))
-        if (pw2.isNotEmpty() && pw != pw2) ErrorText("The two passwords don't match.")
-        Button(onClick = { vm.acceptInvite(code, pw) }, enabled = !state.busy && pw.length >= 10 && pw == pw2, modifier = Modifier.fillMaxWidth().height(52.dp).testTag("createAccount")) {
-          if (state.busy) CircularProgressIndicator(Modifier.width(22.dp)) else Text("Create my account")
+        FpTextField(
+          code,
+          { code = it.uppercase().take(12); info = null },
+          "Invite code, e.g. ABCD-2345",
+          keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
+          modifier = Modifier.testTag("inviteCode"),
+        )
+        if (showServer) FpTextField(server, { server = it }, "Server address (from the invite message)", leadingIcon = Icons.Outlined.Dns, modifier = Modifier.testTag("joinServer"))
+        if (info == null) {
+          PrimaryButton("Continue", onClick = { vm.checkInvite(code, server) { info = it } }, enabled = code.count { it.isLetterOrDigit() } >= 8, loading = state.busy, tall = true, modifier = Modifier.testTag("checkCode"))
+          if (!showServer) LinkButton("Server settings", onClick = { showServer = true }, modifier = Modifier.align(Alignment.CenterHorizontally).testTag("joinServerToggle"), color = Fp.palette.muted)
         }
-        Text("Sign in next time with ${i.email} and this password.", style = MaterialTheme.typography.bodySmall)
+        ErrorText(state.error)
       }
-      ErrorText(state.error)
+      info?.let { i ->
+        SectionCard {
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            Avatar(i.name, size = 48.dp)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+              Text(i.name, style = MaterialTheme.typography.titleMedium, color = Fp.palette.ink)
+              Text(i.email, style = MaterialTheme.typography.bodySmall, color = Fp.palette.muted)
+            }
+          }
+          Banner("${i.companyName} invited ${i.name} as ${if (i.role == "tech") "a technician" else "an ${i.role}"}. Not you? Ask your manager for your own code.", BannerKind.INFO)
+        }
+        SectionCard(title = "Choose a password") {
+          FpTextField(pw, { pw = it }, "Password (10 or more characters)", visualTransformation = PasswordVisualTransformation(), leadingIcon = Icons.Outlined.Lock, modifier = Modifier.testTag("newPassword"))
+          FpTextField(pw2, { pw2 = it }, "Password again", visualTransformation = PasswordVisualTransformation(), leadingIcon = Icons.Outlined.Lock, modifier = Modifier.testTag("newPassword2"))
+          if (pw2.isNotEmpty() && pw != pw2) ErrorText("The two passwords don't match.")
+          PrimaryButton("Create my account", onClick = { vm.acceptInvite(code, pw) }, enabled = pw.length >= 10 && pw == pw2, loading = state.busy, tall = true, modifier = Modifier.testTag("createAccount"))
+          Text("Next time, sign in with ${i.email} and this password.", style = MaterialTheme.typography.bodySmall, color = Fp.palette.muted)
+        }
+      }
     }
   }
 }
 
 // ---- First-run setup: permissions, camera choice, glasses connection, live video test -------------
 
-private enum class Step { PERMISSIONS, CAMERA, CONNECT, TEST, READY }
+private enum class Step(val number: Int, val title: String, val subtitle: String) {
+  PERMISSIONS(1, "Allow access", "FieldPartner needs a few permissions to hear you and record the visit."),
+  CAMERA(2, "Choose your camera", "Pick what you will wear on the job. You can change it later in the Glasses tab."),
+  CONNECT(3, "Connect your glasses", "Do these in order. Each one turns green when it's done."),
+  TEST(4, "Test the video", "Make sure the AI can see what you see."),
+  READY(4, "You're ready", "Here is how to work with your AI partner."),
+}
 
 @Composable
 fun SetupScreen(vm: AppViewModel, activity: MainActivity) {
   val settings by vm.app.settings.values.collectAsStateWithLifecycle()
   var step by remember { mutableStateOf(Step.PERMISSIONS) }
-  val title =
+  val back: (() -> Unit)? =
     when (step) {
-      Step.PERMISSIONS -> "Setup 1 of 4: Allow access"
-      Step.CAMERA -> "Setup 2 of 4: Your camera"
-      Step.CONNECT -> "Setup 3 of 4: Connect your glasses"
-      Step.TEST -> "Setup 4 of 4: Test the video"
-      Step.READY -> "You're ready"
+      Step.CAMERA -> { { step = Step.PERMISSIONS } }
+      Step.CONNECT -> { { step = Step.CAMERA } }
+      Step.TEST -> { { step = if (settings.videoSource == VideoSource.GLASSES) Step.CONNECT else Step.CAMERA } }
+      else -> null
     }
-  FpScaffold(title) { mod ->
-    Column(mod.padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+  FpScaffold("Set up FieldPartner", onBack = back) { mod ->
+    PageColumn(mod) {
+      Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(horizontal = 4.dp)) {
+        StepProgress(if (step == Step.READY) 4 else step.number, 4)
+        Text(if (step == Step.READY) "Setup complete" else "Step ${step.number} of 4", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+        Text(step.title, style = MaterialTheme.typography.headlineSmall, color = Fp.palette.ink)
+        Text(step.subtitle, style = MaterialTheme.typography.bodyMedium, color = Fp.palette.muted)
+      }
       when (step) {
         Step.PERMISSIONS -> PermissionsStep(vm, activity) { step = Step.CAMERA }
         Step.CAMERA -> CameraStep(vm, activity) { src -> step = if (src == VideoSource.GLASSES) Step.CONNECT else Step.TEST }
@@ -155,8 +184,9 @@ fun SetupScreen(vm: AppViewModel, activity: MainActivity) {
         Step.TEST -> TestStep(vm, activity, settings.videoSource) { step = Step.READY }
         Step.READY -> ReadyStep(vm)
       }
-      HorizontalDivider()
-      TextButton(onClick = { vm.finishSetup() }, modifier = Modifier.testTag("skipSetup")) { Text("Skip setup for now (you can run it again in Settings)") }
+      if (step != Step.READY) {
+        LinkButton("Skip for now. Run it later from the Menu.", onClick = { vm.finishSetup() }, modifier = Modifier.align(Alignment.CenterHorizontally).testTag("skipSetup"), color = Fp.palette.muted)
+      }
     }
   }
 }
@@ -165,22 +195,22 @@ fun SetupScreen(vm: AppViewModel, activity: MainActivity) {
 @Composable
 private fun StepBadge(mark: String?, ok: Boolean) {
   if (ok || mark == null) {
-    StatusIcon(if (ok) Status.OK else Status.PENDING, Modifier.padding(top = 1.dp).size(22.dp))
+    StatusIcon(if (ok) Status.OK else Status.PENDING, Modifier.size(26.dp))
   } else {
-    Box(Modifier.padding(top = 1.dp).size(22.dp).background(MaterialTheme.colorScheme.secondaryContainer, androidx.compose.foundation.shape.CircleShape), contentAlignment = Alignment.Center) {
-      Text(mark, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSecondaryContainer)
+    Box(Modifier.size(26.dp).background(Fp.palette.chip, androidx.compose.foundation.shape.CircleShape), contentAlignment = Alignment.Center) {
+      Text(mark, style = MaterialTheme.typography.labelMedium, color = Fp.palette.ink)
     }
   }
 }
 
 @Composable
 private fun StatusLine(label: String, ok: Boolean, detail: String? = null, mark: String? = null) {
-  Row(verticalAlignment = Alignment.Top, modifier = Modifier.padding(vertical = 2.dp)) {
+  Row(verticalAlignment = Alignment.Top) {
     StepBadge(mark, ok)
     Spacer(Modifier.width(12.dp))
-    Column {
-      Text(label, fontWeight = if (ok) FontWeight.Normal else FontWeight.SemiBold)
-      detail?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+    Column(Modifier.weight(1f)) {
+      Text(label, style = MaterialTheme.typography.titleSmall, color = if (ok) Fp.palette.muted else Fp.palette.ink)
+      detail?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Fp.palette.muted) }
     }
   }
 }
@@ -199,55 +229,51 @@ private fun PermissionsStep(vm: AppViewModel, activity: MainActivity, onNext: ()
       add(Perm(Manifest.permission.CAMERA, "Camera", "Only used if you work without glasses.", Icons.Outlined.PhotoCamera))
     }
   @Suppress("UNUSED_VARIABLE") val recheck = tick // re-read permissions after each request
-  Text("FieldPartner needs these. Tap Allow, then accept each prompt.", style = MaterialTheme.typography.bodyLarge)
-  perms.forEach { pm ->
-    Row(verticalAlignment = Alignment.Top, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-      Icon(pm.icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 1.dp).size(22.dp))
-      Spacer(Modifier.width(12.dp))
-      Column(Modifier.weight(1f)) {
-        Text(pm.label, style = MaterialTheme.typography.titleSmall)
-        Text(pm.why, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-      }
-      Spacer(Modifier.width(8.dp))
-      if (has(pm.first)) StatusIcon(Status.OK) else Text("Not yet", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+  SectionCard(padding = PaddingValues(vertical = 4.dp)) {
+    perms.forEachIndexed { idx, pm ->
+      if (idx > 0) RowDivider()
+      ListRow(pm.label, subtitle = pm.why, icon = pm.icon, iconTint = MaterialTheme.colorScheme.primary, iconBackground = Fp.palette.blueTint, trailing = {
+        if (has(pm.first)) StatusIcon(Status.OK, Modifier.size(22.dp)) else Text("Not yet", style = MaterialTheme.typography.labelMedium, color = Fp.palette.faint)
+      })
     }
   }
-  Button(
-    onClick = {
-      activity.requestPermissions((perms.map { it.first } + Manifest.permission.ACCESS_COARSE_LOCATION).toTypedArray()) {
-        if (has(Manifest.permission.BLUETOOTH_CONNECT)) runCatching { vm.app.glasses.initialize() }
-        tick++
-      }
-    },
-    modifier = Modifier.fillMaxWidth().height(52.dp).testTag("allowPermissions"),
-  ) { IconText(Icons.Outlined.Security, "Allow") }
   if (!has(Manifest.permission.RECORD_AUDIO) && tick > 0) {
-    ErrorText("The microphone is required. If Android stopped asking, open Settings > Apps > FieldPartner > Permissions.")
-    OutlinedButton(onClick = { activity.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${activity.packageName}"))) }) { Text("Open app permissions") }
+    ErrorText("The microphone is required. If Android stopped asking, open the app permissions and turn it on.")
+    SecondaryButton("Open app permissions", onClick = { activity.startActivity(Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${activity.packageName}"))) })
   }
-  Button(onClick = onNext, enabled = has(Manifest.permission.RECORD_AUDIO), modifier = Modifier.fillMaxWidth().testTag("permissionsNext")) { Text("Next") }
+  val allMicOk = has(Manifest.permission.RECORD_AUDIO)
+  if (!allMicOk || perms.any { !has(it.first) }) {
+    PrimaryButton(
+      "Allow access",
+      onClick = {
+        activity.requestPermissions((perms.map { it.first } + Manifest.permission.ACCESS_COARSE_LOCATION).toTypedArray()) {
+          if (has(Manifest.permission.BLUETOOTH_CONNECT)) runCatching { vm.app.glasses.initialize() }
+          tick++
+        }
+      },
+      icon = Icons.Outlined.Security,
+      tall = true,
+      modifier = Modifier.testTag("allowPermissions"),
+    )
+  }
+  if (allMicOk) PrimaryButton("Continue", onClick = onNext, icon = Icons.AutoMirrored.Filled.ArrowForward, tall = true, modifier = Modifier.testTag("permissionsNext"))
+  else SecondaryButton("Continue", onClick = onNext, enabled = false, modifier = Modifier.testTag("permissionsNext"))
 }
 
 @Composable
 private fun CameraStep(vm: AppViewModel, activity: MainActivity, onNext: (VideoSource) -> Unit) {
   val s by vm.app.settings.values.collectAsStateWithLifecycle()
   val showSimulated = AppSettings.isEmulator() || BuildConfig.DEBUG
-  Text("What will you wear on the job?", style = MaterialTheme.typography.bodyLarge)
   val options = buildList {
-    add(Triple(VideoSource.GLASSES, "Meta glasses", "Ray-Ban Meta or Oakley Meta. Hands free: the AI sees what you see."))
-    add(Triple(VideoSource.PHONE_CAMERA, "Phone camera", "No glasses yet. Uses the phone's back camera. Good for trying the app."))
-    if (showSimulated) add(Triple(VideoSource.SIMULATED_GLASSES, "Simulated glasses", "Plays a demo video through Meta's glasses simulator. For testing and the emulator."))
+    add(Triple(VideoSource.GLASSES, "Meta glasses" to "Ray-Ban Meta or Oakley Meta. Hands free: the AI sees what you see.", Icons.Outlined.Visibility))
+    add(Triple(VideoSource.PHONE_CAMERA, "Phone camera" to "No glasses yet. Uses the phone's back camera. Good for trying the app.", Icons.Outlined.PhotoCamera))
+    if (showSimulated) add(Triple(VideoSource.SIMULATED_GLASSES, "Simulated glasses" to "Plays a demo video through Meta's glasses simulator. For testing and the emulator.", Icons.Outlined.PlayCircle))
   }
-  options.forEach { (src, title, text) ->
-    Row(Modifier.fillMaxWidth().clickable { vm.app.settings.update { it.copy(videoSource = src) } }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-      RadioButton(selected = s.videoSource == src, onClick = { vm.app.settings.update { it.copy(videoSource = src) } }, modifier = Modifier.testTag("src_${src.name}"))
-      Column {
-        Text(title, style = MaterialTheme.typography.titleSmall)
-        Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-      }
-    }
+  options.forEach { (src, text, icon) ->
+    ChoiceCard(text.first, text.second, s.videoSource == src, { vm.app.settings.update { it.copy(videoSource = src) } }, icon = icon, modifier = Modifier.testTag("src_${src.name}"))
   }
-  Button(
+  PrimaryButton(
+    "Continue",
     onClick = {
       if (s.videoSource != VideoSource.SIMULATED_GLASSES && vm.app.glasses.status.value.simulated) vm.app.glasses.stopSimulated()
       if (s.videoSource == VideoSource.PHONE_CAMERA && activity.checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
@@ -256,8 +282,10 @@ private fun CameraStep(vm: AppViewModel, activity: MainActivity, onNext: (VideoS
         onNext(s.videoSource)
       }
     },
-    modifier = Modifier.fillMaxWidth().height(52.dp).testTag("cameraNext"),
-  ) { Text("Next") }
+    icon = Icons.AutoMirrored.Filled.ArrowForward,
+    tall = true,
+    modifier = Modifier.testTag("cameraNext"),
+  )
 }
 
 @Composable
@@ -277,42 +305,38 @@ private fun ConnectStep(vm: AppViewModel, activity: MainActivity, onNext: () -> 
   }
   activity.glassesPermissionMessage = { message = it }
 
-  Text("Do these in order. Each line turns into a green tick when it's done.", style = MaterialTheme.typography.bodyLarge)
-
-  StatusLine(mark = "A", label = "Meta AI app installed and your glasses paired in it", ok = metaInstalled, detail = "Open Meta AI, sign in with your Meta account, tap the glasses icon and follow its pairing steps. Keep the glasses charged.")
-  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-    OutlinedButton(onClick = {
-      val market = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$META_AI_PACKAGE"))
-      runCatching { ctx.startActivity(market) }.onFailure { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$META_AI_PACKAGE"))) }
-    }) { Text(if (metaInstalled) "Update Meta AI" else "Get Meta AI") }
-    if (metaInstalled) OutlinedButton(onClick = { ctx.packageManager.getLaunchIntentForPackage(META_AI_PACKAGE)?.let { ctx.startActivity(it) } }) { Text("Open Meta AI") }
+  SectionCard {
+    StatusLine(mark = "A", label = "Meta AI app installed, glasses paired in it", ok = metaInstalled, detail = "Open Meta AI, sign in with your Meta account, tap the glasses icon and follow its pairing steps.")
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      SecondaryButton(if (metaInstalled) "Update Meta AI" else "Get Meta AI", onClick = {
+        val market = Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=$META_AI_PACKAGE"))
+        runCatching { ctx.startActivity(market) }.onFailure { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=$META_AI_PACKAGE"))) }
+      }, fill = false, modifier = Modifier.weight(1f))
+      if (metaInstalled) SecondaryButton("Open Meta AI", onClick = { ctx.packageManager.getLaunchIntentForPackage(META_AI_PACKAGE)?.let { ctx.startActivity(it) } }, fill = false, modifier = Modifier.weight(1f))
+    }
   }
-
-  StatusLine(
-    mark = "B",
-    label = "Developer Mode on in Meta AI",
-    ok = gs.isRegistered,
-    detail = "In Meta AI: Settings (gear) > App info > tap the version number 5 times > turn on Developer Mode. Needed until your company registers FieldPartner with Meta.",
-  )
-
-  StatusLine(mark = "C", label = "FieldPartner connected to your glasses", ok = gs.isRegistered, detail = "Tap Connect. Meta AI opens and asks to allow FieldPartner. Tap Allow, then come back here.")
-  Button(onClick = { vm.app.glasses.clearError(); vm.app.glasses.register(activity) }, modifier = Modifier.fillMaxWidth().testTag("connectGlasses")) {
-    IconText(Icons.Outlined.Link, if (gs.isRegistered) "Connected. Connect again" else "Connect")
+  SectionCard {
+    StatusLine(mark = "B", label = "Developer Mode on in Meta AI", ok = gs.isRegistered, detail = "In Meta AI: Settings > App info > tap the version number 5 times > turn on Developer Mode.")
   }
-
-  StatusLine(mark = "D", label = "Glasses camera allowed", ok = cameraOk, detail = "Tap Allow camera. Meta AI asks once. Choose Allow always.")
-  OutlinedButton(onClick = { activity.requestGlassesCamera() }, enabled = gs.isRegistered, modifier = Modifier.fillMaxWidth()) { IconText(Icons.Outlined.PhotoCamera, "Allow camera") }
-
-  StatusLine(
-    mark = "E",
-    label = "Glasses found",
-    ok = gs.deviceCount > 0,
-    detail = if (gs.deviceCount > 0) "${gs.deviceName ?: "Glasses"}${gs.battery?.let { ", battery $it%" } ?: ""}" else "Take the glasses out of the case, unfold them and put them on. Bluetooth must be on.",
-  )
-
-  message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
+  SectionCard {
+    StatusLine(mark = "C", label = "FieldPartner connected to your glasses", ok = gs.isRegistered, detail = "Meta AI opens and asks to allow FieldPartner. Tap Allow, then come back here.")
+    PrimaryButton(if (gs.isRegistered) "Connected. Connect again" else "Connect", onClick = { vm.app.glasses.clearError(); vm.app.glasses.register(activity) }, icon = Icons.Outlined.Link, modifier = Modifier.testTag("connectGlasses"))
+  }
+  SectionCard {
+    StatusLine(mark = "D", label = "Glasses camera allowed", ok = cameraOk, detail = "Meta AI asks once. Choose Allow always.")
+    SecondaryButton("Allow camera", onClick = { activity.requestGlassesCamera() }, icon = Icons.Outlined.PhotoCamera, enabled = gs.isRegistered)
+  }
+  SectionCard {
+    StatusLine(
+      mark = "E",
+      label = "Glasses found",
+      ok = gs.deviceCount > 0,
+      detail = if (gs.deviceCount > 0) "${gs.deviceName ?: "Glasses"}${gs.battery?.let { ", battery $it%" } ?: ""}" else "Take the glasses out of the case, unfold them and put them on. Bluetooth must be on.",
+    )
+  }
+  message?.let { Banner(it, BannerKind.INFO) }
   gs.lastError?.let { ErrorText(it) }
-  Button(onClick = onNext, enabled = gs.isRegistered && cameraOk, modifier = Modifier.fillMaxWidth().height(52.dp).testTag("connectNext")) { Text("Next: test the video") }
+  PrimaryButton("Continue to video test", onClick = onNext, enabled = gs.isRegistered && cameraOk, icon = Icons.AutoMirrored.Filled.ArrowForward, tall = true, modifier = Modifier.testTag("connectNext"))
 }
 
 @Composable
@@ -329,62 +353,70 @@ private fun TestStep(vm: AppViewModel, activity: MainActivity, source: VideoSour
     }
   }
   if (source == VideoSource.PHONE_CAMERA) {
-    Text("You chose the phone camera. It turns on when you start a visit: hold the phone or put it in a chest mount with the back camera facing the work.", style = MaterialTheme.typography.bodyLarge)
-    StatusLine("Camera permission", activity.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
-    Button(onClick = onNext, modifier = Modifier.fillMaxWidth().height(52.dp).testTag("testNext")) { Text("Next") }
+    SectionCard {
+      Text("The phone camera turns on when you start a visit. Hold the phone or use a chest mount with the back camera facing the work.", style = MaterialTheme.typography.bodyLarge, color = Fp.palette.ink)
+      StatusLine("Camera permission", activity.checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+    }
+    PrimaryButton("Continue", onClick = onNext, icon = Icons.AutoMirrored.Filled.ArrowForward, tall = true, modifier = Modifier.testTag("testNext"))
     return
   }
   val received = (gs.frames - startFrames).coerceAtLeast(0)
   val ok = running && received >= 15
-  Text(
-    if (source == VideoSource.SIMULATED_GLASSES) "Plays the demo video through Meta's glasses simulator, the same path real glasses use."
-    else "Put the glasses on and look at something. You should see it below within 10 seconds.",
-    style = MaterialTheme.typography.bodyLarge,
-  )
-  Box(Modifier.fillMaxWidth().height(280.dp).background(Color.Black), contentAlignment = Alignment.Center) {
-    val bmp = preview
-    if (running && bmp != null) Image(bmp.asImageBitmap(), "Live view from the glasses", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxWidth().height(280.dp))
-    else Text(if (running) "Waiting for video..." else "Tap Start test", color = Color.White)
-  }
-  StatusLine("Video received", ok, if (running) "$received frames, stream ${gs.streamState.lowercase()}" else null)
-  gs.lastError?.let { ErrorText(it) }
-  Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-    Button(
-      onClick = {
-        scope.launch {
-          if (source == VideoSource.SIMULATED_GLASSES) {
-            val f = java.io.File(activity.cacheDir, "demo-glasses.mp4")
-            if (!f.exists() || f.length() == 0L) activity.assets.open("demo-glasses.mp4").use { i -> f.outputStream().use { i.copyTo(it) } }
-            val custom = vm.app.settings.current.simulatedVideoUri
-            vm.app.glasses.useSimulated(if (custom.isNotBlank()) Uri.parse(custom) else Uri.fromFile(f))
-          }
-          vm.app.glasses.clearError()
-          startFrames = vm.app.glasses.status.value.frames
-          vm.app.glasses.previewEnabled = true
-          vm.app.glasses.startStreaming()
-          running = true
-        }
-      },
-      enabled = !running,
-      modifier = Modifier.testTag("startTest"),
-    ) { IconText(Icons.Filled.PlayArrow, "Start test") }
-    OutlinedButton(onClick = {
-      vm.app.glasses.previewEnabled = false
-      vm.app.glasses.stopStreaming()
-      running = false
-    }, enabled = running) { IconText(Icons.Filled.Stop, "Stop") }
+  SectionCard(padding = PaddingValues(0.dp)) {
+    Box(Modifier.fillMaxWidth().height(260.dp).background(Color.Black, RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp)), contentAlignment = Alignment.Center) {
+      val bmp = preview
+      if (running && bmp != null) Image(bmp.asImageBitmap(), "Live view from the glasses", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxWidth().height(260.dp))
+      else Text(if (running) "Waiting for video..." else "Tap Start test", color = Color.White, style = MaterialTheme.typography.bodyMedium)
+    }
+    Column(Modifier.padding(horizontal = 16.dp, vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+      Text(
+        if (source == VideoSource.SIMULATED_GLASSES) "Plays the demo video through Meta's glasses simulator, the same path real glasses use."
+        else "Put the glasses on and look at something. You should see it here within 10 seconds.",
+        style = MaterialTheme.typography.bodyMedium,
+        color = Fp.palette.muted,
+      )
+      StatusLine("Video received", ok, if (running) "$received frames, stream ${gs.streamState.lowercase()}" else null)
+      gs.lastError?.let { ErrorText(it) }
+      Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 12.dp)) {
+        PrimaryButton(
+          "Start test",
+          onClick = {
+            scope.launch {
+              if (source == VideoSource.SIMULATED_GLASSES) {
+                val f = java.io.File(activity.cacheDir, "demo-glasses.mp4")
+                if (!f.exists() || f.length() == 0L) activity.assets.open("demo-glasses.mp4").use { i -> f.outputStream().use { i.copyTo(it) } }
+                val custom = vm.app.settings.current.simulatedVideoUri
+                vm.app.glasses.useSimulated(if (custom.isNotBlank()) Uri.parse(custom) else Uri.fromFile(f))
+              }
+              vm.app.glasses.clearError()
+              startFrames = vm.app.glasses.status.value.frames
+              vm.app.glasses.previewEnabled = true
+              vm.app.glasses.startStreaming()
+              running = true
+            }
+          },
+          enabled = !running,
+          icon = Icons.Filled.PlayArrow,
+          modifier = Modifier.weight(1f).testTag("startTest"),
+        )
+        SecondaryButton("Stop", onClick = {
+          vm.app.glasses.previewEnabled = false
+          vm.app.glasses.stopStreaming()
+          running = false
+        }, enabled = running, icon = Icons.Filled.Stop, fill = false, modifier = Modifier.weight(1f))
+      }
+    }
   }
   if (running && !ok) {
-    Text("No video after 20 seconds? Check: glasses unfolded and worn, Bluetooth on, step D allowed, and the phone and glasses close together. Then Stop and Start again.", style = MaterialTheme.typography.bodySmall)
+    Banner("No video after 20 seconds? Check the glasses are unfolded and worn, Bluetooth is on, step D was allowed, and the phone is close. Then Stop and Start again.", BannerKind.WARN)
   }
-  Button(onClick = onNext, enabled = ok, modifier = Modifier.fillMaxWidth().height(52.dp).testTag("testNext")) { Text("Next") }
+  PrimaryButton("Continue", onClick = onNext, enabled = ok, icon = Icons.AutoMirrored.Filled.ArrowForward, tall = true, modifier = Modifier.testTag("testNext"))
 }
 
+/** The short how-to list. Shown at the end of setup and from Menu > How to use FieldPartner. */
 @Composable
-private fun ReadyStep(vm: AppViewModel) {
-  val state by vm.state.collectAsStateWithLifecycle()
-  val wake = vm.app.settings.current.wakePhraseOverride.ifBlank { state.company?.wake_phrase ?: "hey dispatch" }
-  Text("How to work with your AI partner", style = MaterialTheme.typography.titleMedium)
+fun HowToTips(companyWake: String, override: String) {
+  val wake = override.ifBlank { companyWake }
   val tips =
     listOf(
       Icons.Outlined.PlayCircle to "Open a job and tap Start visit. Recording starts at the door.",
@@ -397,12 +429,19 @@ private fun ReadyStep(vm: AppViewModel) {
       Icons.Outlined.Description to "Tap End when you leave. Check the report, then Approve and send.",
     )
   tips.forEach { (icon, text) ->
-    Row(verticalAlignment = Alignment.Top, modifier = Modifier.padding(vertical = 4.dp)) {
-      Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(top = 2.dp).size(20.dp))
+    Row(verticalAlignment = Alignment.Top) {
+      IconBadge(icon, size = 32.dp)
       Spacer(Modifier.width(12.dp))
-      Text(text, style = MaterialTheme.typography.bodyLarge)
+      Text(text, style = MaterialTheme.typography.bodyMedium, color = Fp.palette.ink, modifier = Modifier.padding(top = 6.dp))
     }
   }
-  Spacer(Modifier.height(8.dp))
-  Button(onClick = { vm.finishSetup() }, modifier = Modifier.fillMaxWidth().height(56.dp).testTag("finishSetup")) { IconText(Icons.AutoMirrored.Filled.ArrowForward, "Go to my jobs") }
+}
+
+@Composable
+private fun ReadyStep(vm: AppViewModel) {
+  val state by vm.state.collectAsStateWithLifecycle()
+  SectionCard {
+    HowToTips(state.company?.wake_phrase ?: "hey dispatch", vm.app.settings.current.wakePhraseOverride)
+  }
+  PrimaryButton("Go to my jobs", onClick = { vm.finishSetup() }, icon = Icons.AutoMirrored.Filled.ArrowForward, tall = true, modifier = Modifier.testTag("finishSetup"))
 }

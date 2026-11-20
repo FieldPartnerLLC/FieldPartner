@@ -119,24 +119,33 @@ private fun PreflightScreen(vm: AppViewModel, c: VisitController, onGo: () -> Un
   val scope = rememberCoroutineScope()
   LaunchedEffect(Unit) { c.checkPreflight() }
   FpScaffold("Before you go in", onBack = { vm.closeVisit(openReport = false) }) { mod ->
-    Column(mod.padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-      Text(c.job.title, style = MaterialTheme.typography.titleLarge)
+    PageColumn(mod) {
+      SectionCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          IconBadge(tradeIcon(c.job.trade), size = 48.dp)
+          Spacer(Modifier.width(12.dp))
+          Column(Modifier.weight(1f)) {
+            Text(c.job.title, style = MaterialTheme.typography.titleLarge, color = Fp.palette.ink)
+            Text("Quick check before recording starts", style = MaterialTheme.typography.bodySmall, color = Fp.palette.muted)
+          }
+        }
+      }
       val p = ui.preflight
       if (p == null) {
-        CircularProgressIndicator()
+        Loading()
       } else {
-        Check("Video: ${p.videoDetail}", p.videoReady)
-        p.glassesBattery?.let { Check("Glasses battery $it%", it >= 20) }
-        Check("Phone battery ${p.phoneBattery}%", p.phoneBattery >= 20)
-        Check("Free storage ${"%.1f".format(p.freeStorageGb)} GB", p.freeStorageGb >= 2)
-        Check("Server reachable", p.server)
-        Check("Microphone allowed", p.micPermission)
-        Check(if (p.voiceCommands) "Voice commands: say \"${c.wakePhrase}\"" else "Voice commands unavailable on this phone. Use Talk or type.", p.voiceCommands)
-        Text("Wake phrase: \"${c.wakePhrase}, ...\". Short commands: \"partner, stop\", \"partner, pause camera\", \"${c.wakePhrase}, call expert\".", style = MaterialTheme.typography.bodySmall)
-        Button(onClick = onGo, enabled = p.micPermission, modifier = Modifier.fillMaxWidth().height(56.dp).testTag("beginVisit")) {
-          IconText(Icons.Filled.FiberManualRecord, if (p.videoReady && p.server) "Start recording and go to the door" else "Start anyway")
+        SectionCard {
+          Check("Video: ${p.videoDetail}", p.videoReady)
+          p.glassesBattery?.let { Check("Glasses battery $it%", it >= 20) }
+          Check("Phone battery ${p.phoneBattery}%", p.phoneBattery >= 20)
+          Check("Free storage ${"%.1f".format(p.freeStorageGb)} GB", p.freeStorageGb >= 2)
+          Check("Server reachable", p.server)
+          Check("Microphone allowed", p.micPermission)
+          Check(if (p.voiceCommands) "Voice commands: say \"${c.wakePhrase}\"" else "Voice commands unavailable on this phone. Use Talk or type.", p.voiceCommands)
         }
-        OutlinedButton(onClick = { scope.launch { c.checkPreflight() } }, modifier = Modifier.fillMaxWidth()) { IconText(Icons.Outlined.Refresh, "Check again") }
+        Banner("Say \"${c.wakePhrase}, ...\" to ask. \"Partner, stop\" stops it. \"${c.wakePhrase}, call expert\" pages your expert.", BannerKind.INFO)
+        PrimaryButton(if (p.videoReady && p.server) "Start recording" else "Start anyway", onClick = onGo, enabled = p.micPermission, icon = Icons.Filled.FiberManualRecord, tall = true, modifier = Modifier.testTag("beginVisit"))
+        SecondaryButton("Check again", onClick = { scope.launch { c.checkPreflight() } }, icon = Icons.Outlined.Refresh)
       }
     }
   }
@@ -144,10 +153,10 @@ private fun PreflightScreen(vm: AppViewModel, c: VisitController, onGo: () -> Un
 
 @Composable
 private fun Check(label: String, ok: Boolean) {
-  Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 2.dp)) {
-    StatusIcon(if (ok) Status.OK else Status.WARN)
-    Spacer(Modifier.width(10.dp))
-    Text(label, style = MaterialTheme.typography.bodyLarge)
+  Row(verticalAlignment = Alignment.CenterVertically) {
+    StatusIcon(if (ok) Status.OK else Status.WARN, Modifier.size(22.dp))
+    Spacer(Modifier.width(12.dp))
+    Text(label, style = MaterialTheme.typography.bodyMedium, color = Fp.palette.ink)
   }
 }
 
@@ -168,7 +177,7 @@ private fun VisitBody(vm: AppViewModel, c: VisitController) {
     if (ui.phase == Phase.DECLINED && c.ui.value.recording.not()) vm.closeVisit(openReport = false)
   }
 
-  Column(Modifier.fillMaxSize()) {
+  Column(Modifier.fillMaxSize().background(Fp.palette.canvas)) {
     Header(c, ui, live)
     Box(Modifier.fillMaxWidth().height(240.dp).background(Color.Black), contentAlignment = Alignment.BottomCenter) {
       val track = live.localVideoTrack
@@ -176,7 +185,7 @@ private fun VisitBody(vm: AppViewModel, c: VisitController) {
       if (track != null && room != null && !ui.cameraPaused) VideoPreview(room, track)
       else Text(if (ui.cameraPaused) "Camera paused" else "Waiting for video...", color = Color.White, modifier = Modifier.align(Alignment.Center))
       live.caption?.let { cap ->
-        Text(cap.text, color = Color.White, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(10.dp).background(Color(0xCC111418), RoundedCornerShape(8.dp)).padding(horizontal = 12.dp, vertical = 8.dp))
+        Text(cap.text, color = Color.White, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(10.dp).background(Color(0xCC18191A), RoundedCornerShape(10.dp)).padding(horizontal = 12.dp, vertical = 8.dp))
       }
     }
     ui.safetyAlert?.let { alert ->
@@ -191,35 +200,52 @@ private fun VisitBody(vm: AppViewModel, c: VisitController) {
       }
     }
     if (ui.phase == Phase.PRE_VISIT) {
-      Button(onClick = { showConsent = true }, colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary, contentColor = MaterialTheme.colorScheme.onTertiary), shape = RoundedCornerShape(0.dp), modifier = Modifier.fillMaxWidth().height(56.dp).testTag("consentButton")) {
-        IconText(Icons.Outlined.Draw, "Get customer consent")
+      Box(Modifier.fillMaxWidth().background(Fp.palette.card).padding(horizontal = 12.dp, vertical = 10.dp)) {
+        PrimaryButton("Get customer consent", onClick = { showConsent = true }, icon = Icons.Outlined.Draw, color = FpColors.Warning, tall = true, modifier = Modifier.testTag("consentButton"))
       }
     }
     Controls(c, ui, onReading = { showReading = true }, onNote = { showNote = true }, onEnd = { confirmEnd = true })
-    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-      OutlinedTextField(typed, { typed = it }, placeholder = { Text("Type a question for your partner") }, singleLine = true, modifier = Modifier.weight(1f).testTag("askField"))
-      Spacer(Modifier.width(6.dp))
-      Button(onClick = {
-        val q = typed
-        typed = ""
-        scope.launch { c.askTyped(q) }
-      }, enabled = typed.isNotBlank(), modifier = Modifier.testTag("askSend")) { IconText(Icons.AutoMirrored.Filled.Send, "Ask") }
+    Row(Modifier.fillMaxWidth().background(Fp.palette.card).padding(start = 12.dp, end = 12.dp, bottom = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+      Box(Modifier.weight(1f).height(44.dp).background(Fp.palette.canvas, RoundedCornerShape(22.dp)).padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
+        androidx.compose.foundation.text.BasicTextField(
+          typed,
+          { typed = it },
+          singleLine = true,
+          textStyle = MaterialTheme.typography.bodyMedium.copy(color = Fp.palette.ink),
+          cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
+          modifier = Modifier.fillMaxWidth().testTag("askField"),
+          decorationBox = { inner ->
+            if (typed.isEmpty()) Text("Ask your partner a question", style = MaterialTheme.typography.bodyMedium, color = Fp.palette.faint)
+            inner()
+          },
+        )
+      }
+      Spacer(Modifier.width(8.dp))
+      Box(
+        Modifier.size(44.dp).background(if (typed.isNotBlank()) MaterialTheme.colorScheme.primary else Fp.palette.chip, androidx.compose.foundation.shape.CircleShape).clickable(enabled = typed.isNotBlank()) {
+          val q = typed
+          typed = ""
+          scope.launch { c.askTyped(q) }
+        }.testTag("askSend"),
+        contentAlignment = Alignment.Center,
+      ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Ask", tint = if (typed.isNotBlank()) Color.White else Fp.palette.faint, modifier = Modifier.size(20.dp)) }
     }
-    LazyColumn(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+    HorizontalDivider(color = Fp.palette.line)
+    LazyColumn(Modifier.weight(1f).padding(horizontal = 16.dp)) {
       if (ui.readings.isNotEmpty()) {
         item { SectionTitle("Readings") }
-        items(ui.readings) { r -> Text("${r.name}: ${r.value} ${r.unit}") }
+        items(ui.readings) { r -> Text("${r.name}: ${r.value} ${r.unit}", style = MaterialTheme.typography.bodyMedium, color = Fp.palette.ink, modifier = Modifier.padding(vertical = 2.dp)) }
       }
       ui.estimateDraft?.let { est ->
         item { SectionTitle("Estimate draft (not shown to customer)") }
-        items(est.entries.sortedBy { it.key }.toList()) { (k, v) -> Text("${k.replaceFirstChar { it.uppercase() }}: $v") }
+        items(est.entries.sortedBy { it.key }.toList()) { (k, v) -> Text("${k.replaceFirstChar { it.uppercase() }}: $v", style = MaterialTheme.typography.bodyMedium, color = Fp.palette.ink, modifier = Modifier.padding(vertical = 2.dp)) }
       }
       item { SectionTitle("Activity") }
       items(ui.notices, key = { it.id }) { n -> NoticeRow(n) }
       if (settings.showTranscript) {
         item { SectionTitle("Transcript") }
-        if (ui.livePartial.isNotEmpty()) item { Text(ui.livePartial, color = MaterialTheme.colorScheme.outline) }
-        items(ui.transcript.takeLast(30).reversed()) { line -> Text(line, style = MaterialTheme.typography.bodySmall) }
+        if (ui.livePartial.isNotEmpty()) item { Text(ui.livePartial, style = MaterialTheme.typography.bodySmall, color = Fp.palette.faint) }
+        items(ui.transcript.takeLast(30).reversed()) { line -> Text(line, style = MaterialTheme.typography.bodySmall, color = Fp.palette.muted, modifier = Modifier.padding(vertical = 2.dp)) }
       }
     }
   }
@@ -230,22 +256,23 @@ private fun VisitBody(vm: AppViewModel, c: VisitController) {
   if (confirmEnd) {
     AlertDialog(
       onDismissRequest = { confirmEnd = false },
-      title = { Text("End this visit?") },
-      text = { Text("Recording stops and the report is drafted from this visit.") },
+      containerColor = Fp.palette.card,
+      title = { Text("End this visit?", style = MaterialTheme.typography.titleLarge) },
+      text = { Text("Recording stops and the AI drafts the report from this visit.", style = MaterialTheme.typography.bodyMedium, color = Fp.palette.muted) },
       confirmButton = {
-        TextButton(onClick = {
+        LinkButton("End visit", onClick = {
           confirmEnd = false
           scope.launch { c.end() }
-        }, modifier = Modifier.testTag("confirmEnd")) { Text("End visit and build report") }
+        }, modifier = Modifier.testTag("confirmEnd"), color = MaterialTheme.colorScheme.error)
       },
-      dismissButton = { TextButton(onClick = { confirmEnd = false }) { Text("Keep working") } },
+      dismissButton = { LinkButton("Keep working", onClick = { confirmEnd = false }) },
     )
   }
 }
 
 @Composable
 private fun SectionTitle(t: String) {
-  Text(t, style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 12.dp, bottom = 4.dp))
+  Text(t, style = MaterialTheme.typography.titleSmall, color = Fp.palette.muted, modifier = Modifier.padding(top = 14.dp, bottom = 6.dp))
 }
 
 @Composable
@@ -266,13 +293,18 @@ private fun Header(c: VisitController, ui: VisitController.Ui, live: LiveSession
           else -> "Standing by. Say \"${c.wakePhrase}\""
         }
     }
-  Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceVariant).padding(10.dp)) {
+  Column(Modifier.fillMaxWidth().background(Fp.palette.card).padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
     Row(verticalAlignment = Alignment.CenterVertically) {
-      Icon(Icons.Filled.FiberManualRecord, contentDescription = null, tint = if (ui.recording) FpColors.Danger else MaterialTheme.colorScheme.outline, modifier = Modifier.size(14.dp))
-      Spacer(Modifier.width(4.dp))
-      Text(if (ui.recording) "REC" else "Not recording", color = if (ui.recording) FpColors.Danger else MaterialTheme.colorScheme.outline, style = MaterialTheme.typography.labelLarge)
-      Spacer(Modifier.width(12.dp))
-      Text(partner, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f).testTag("partnerStatus"))
+      Row(
+        Modifier.background(if (ui.recording) Fp.palette.dangerTint else Fp.palette.chip, RoundedCornerShape(50)).padding(horizontal = 10.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+      ) {
+        Icon(Icons.Filled.FiberManualRecord, contentDescription = null, tint = if (ui.recording) FpColors.Danger else Fp.palette.faint, modifier = Modifier.size(10.dp))
+        Spacer(Modifier.width(6.dp))
+        Text(if (ui.recording) "REC" else "Not recording", color = if (ui.recording) FpColors.Danger else Fp.palette.muted, style = MaterialTheme.typography.labelMedium)
+      }
+      Spacer(Modifier.width(10.dp))
+      Text(partner, style = MaterialTheme.typography.titleSmall, color = Fp.palette.ink, modifier = Modifier.weight(1f).testTag("partnerStatus"))
       if (ui.pendingHints > 0) {
         Icon(Icons.Outlined.Lightbulb, contentDescription = "Tips waiting", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
         Text("${ui.pendingHints}", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
@@ -286,10 +318,11 @@ private fun Header(c: VisitController, ui: VisitController.Ui, live: LiveSession
           if (ui.queuedEvents > 0) "${ui.queuedEvents} events queued" else null,
         )
         .joinToString(" · "),
-      style = MaterialTheme.typography.labelSmall,
+      style = MaterialTheme.typography.bodySmall,
+      color = Fp.palette.muted,
     )
-    ui.voiceStatus?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = FpColors.Warning) }
-    ui.errorBanner?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error) }
+    ui.voiceStatus?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = FpColors.Warning) }
+    ui.errorBanner?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
   }
 }
 
@@ -297,22 +330,36 @@ private fun Header(c: VisitController, ui: VisitController.Ui, live: LiveSession
 private fun Controls(c: VisitController, ui: VisitController.Ui, onReading: () -> Unit, onNote: () -> Unit, onEnd: () -> Unit) {
   val scope = rememberCoroutineScope()
   val ending = ui.phase == Phase.ENDING
-  Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-      Button(onClick = { c.talk() }, enabled = !ending, modifier = Modifier.weight(1.6f).height(56.dp).testTag("talk")) { IconText(Icons.Filled.Mic, "Talk") }
-      FilledTonalButton(onClick = { c.stopTalking() }, enabled = !ending, modifier = Modifier.weight(1f).height(56.dp)) { IconText(Icons.Filled.Stop, "Stop") }
-      FilledTonalButton(onClick = { scope.launch { c.setCameraPaused(!ui.cameraPaused) } }, enabled = !ending, modifier = Modifier.weight(1.3f).height(56.dp)) {
-        IconText(if (ui.cameraPaused) Icons.Outlined.Videocam else Icons.Outlined.VideocamOff, if (ui.cameraPaused) "Camera on" else "Camera off")
-      }
+  Column(Modifier.fillMaxWidth().background(Fp.palette.card).padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      PrimaryButton("Talk", onClick = { c.talk() }, enabled = !ending, icon = Icons.Filled.Mic, tall = true, modifier = Modifier.weight(1.2f).testTag("talk"))
+      SecondaryButton("Stop", onClick = { c.stopTalking() }, enabled = !ending, icon = Icons.Filled.Stop, fill = false, modifier = Modifier.weight(1f).height(52.dp))
+      SecondaryButton(if (ui.cameraPaused) "Camera on" else "Camera off", onClick = { scope.launch { c.setCameraPaused(!ui.cameraPaused) } }, enabled = !ending, icon = if (ui.cameraPaused) Icons.Outlined.Videocam else Icons.Outlined.VideocamOff, fill = false, modifier = Modifier.weight(1.5f).height(52.dp))
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-      OutlinedButton(onClick = { scope.launch { c.escalate("Technician tapped Call expert") } }, enabled = !ending && ui.escalation == "none", modifier = Modifier.weight(1.5f), contentPadding = PaddingValues(horizontal = 8.dp)) {
-        IconText(Icons.Outlined.SupportAgent, if (ui.escalation == "none") "Expert" else ui.escalation.replaceFirstChar { it.uppercase() })
-      }
-      OutlinedButton(onClick = onReading, enabled = !ending, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 6.dp)) { IconText(Icons.Outlined.Speed, "Reading") }
-      OutlinedButton(onClick = onNote, enabled = !ending, modifier = Modifier.weight(1f), contentPadding = PaddingValues(horizontal = 6.dp)) { IconText(Icons.Outlined.EditNote, "Note") }
-      OutlinedButton(onClick = onEnd, enabled = !ending, modifier = Modifier.weight(0.9f).testTag("endVisit"), contentPadding = PaddingValues(horizontal = 6.dp)) { Text(if (ending) "Ending" else "End") }
+    Row {
+      ToolAction(Icons.Outlined.SupportAgent, if (ui.escalation == "none") "Expert" else ui.escalation.replaceFirstChar { it.uppercase() }, enabled = !ending && ui.escalation == "none") { scope.launch { c.escalate("Technician tapped Call expert") } }
+      ToolAction(Icons.Outlined.Speed, "Reading", enabled = !ending, onClick = onReading)
+      ToolAction(Icons.Outlined.EditNote, "Note", enabled = !ending, onClick = onNote)
+      ToolAction(Icons.Filled.Stop, if (ending) "Ending" else "End", enabled = !ending, danger = true, modifier = Modifier.testTag("endVisit"), onClick = onEnd)
     }
+  }
+  HorizontalDivider(color = Fp.palette.line)
+}
+
+/** Icon over a short label, four across, like a toolbar under a post. */
+@Composable
+private fun androidx.compose.foundation.layout.RowScope.ToolAction(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, enabled: Boolean = true, danger: Boolean = false, modifier: Modifier = Modifier, onClick: () -> Unit) {
+  val tint = when {
+    !enabled -> Fp.palette.faint
+    danger -> MaterialTheme.colorScheme.error
+    else -> Fp.palette.ink
+  }
+  Column(modifier.weight(1f).clickable(enabled = enabled, onClick = onClick).padding(vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+    Box(Modifier.size(40.dp).background(if (danger && enabled) Fp.palette.dangerTint else Fp.palette.chip, androidx.compose.foundation.shape.CircleShape), contentAlignment = Alignment.Center) {
+      Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp))
+    }
+    Spacer(Modifier.height(4.dp))
+    Text(label, style = MaterialTheme.typography.labelSmall, color = tint)
   }
 }
 
@@ -325,14 +372,14 @@ private fun NoticeRow(n: Notice) {
       Notice.Kind.TOOL -> Icons.Outlined.CheckCircle to FpColors.Success
       Notice.Kind.ESCALATION -> Icons.Outlined.SupportAgent to MaterialTheme.colorScheme.primary
       Notice.Kind.ERROR -> Icons.Outlined.ErrorOutline to FpColors.Warning
-      Notice.Kind.INFO -> Icons.Outlined.Info to MaterialTheme.colorScheme.onSurfaceVariant
+      Notice.Kind.INFO -> Icons.Outlined.Info to Fp.palette.muted
     }
   Row(Modifier.padding(vertical = 6.dp), verticalAlignment = Alignment.Top) {
     Icon(icon, contentDescription = null, tint = color, modifier = Modifier.padding(top = 2.dp).size(18.dp))
     Spacer(Modifier.width(10.dp))
     Column {
-      Text(n.title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface)
-      if (n.detail.isNotBlank()) Text(n.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+      Text(n.title, style = MaterialTheme.typography.titleSmall, color = Fp.palette.ink)
+      if (n.detail.isNotBlank()) Text(n.detail, style = MaterialTheme.typography.bodySmall, color = Fp.palette.muted)
     }
   }
 }
@@ -377,46 +424,35 @@ private fun ConsentDialog(vm: AppViewModel, c: VisitController, onClose: () -> U
   val es = language == "es"
 
   Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-    Card(Modifier.fillMaxSize().padding(8.dp)) {
-      Column(Modifier.padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row {
-          listOf("en" to "English", "es" to "Español").forEach { (code, label) ->
-            Row(Modifier.clickable { language = code }, verticalAlignment = Alignment.CenterVertically) {
-              RadioButton(language == code, { language = code })
-              Text(label)
-              Spacer(Modifier.width(12.dp))
-            }
-          }
+    Column(Modifier.fillMaxSize().background(Fp.palette.canvas)) {
+      Row(Modifier.fillMaxWidth().background(Fp.palette.card).padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        LinkButton(if (es) "Cerrar" else "Close", onClick = onClose)
+        Text(if (es) "Consentimiento del cliente" else "Customer consent", style = MaterialTheme.typography.titleMedium, color = Fp.palette.ink, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        Spacer(Modifier.width(72.dp))
+      }
+      HorizontalDivider(color = Fp.palette.line)
+      Column(Modifier.padding(12.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Segmented(listOf("en" to "English", "es" to "Español"), language, { language = it })
+        SectionCard(title = if (es) "Autorización de servicio" else "Service authorization") {
+          Text(ConsentText.serviceAuthorization(company, state.company?.diagnostic_fee_cents, language), style = MaterialTheme.typography.bodyLarge, color = Fp.palette.ink)
         }
-        Text(if (es) "Autorización de servicio" else "Service authorization", style = MaterialTheme.typography.titleMedium)
-        Text(ConsentText.serviceAuthorization(company, state.company?.diagnostic_fee_cents, language), style = MaterialTheme.typography.bodyLarge)
-        Text(if (es) "Grabación" else "Recording", style = MaterialTheme.typography.titleMedium)
-        Text(ConsentText.recording(language), style = MaterialTheme.typography.bodyLarge)
+        SectionCard(title = if (es) "Grabación" else "Recording") {
+          Text(ConsentText.recording(language), style = MaterialTheme.typography.bodyLarge, color = Fp.palette.ink)
+        }
         ConsentText.choices.forEach { ch ->
-          Row(Modifier.fillMaxWidth().clickable { choice = ch.id }, verticalAlignment = Alignment.CenterVertically) {
-            RadioButton(choice == ch.id, { choice = ch.id }, modifier = Modifier.testTag("choice_${ch.id}"))
-            Text(if (es) ch.es else ch.en, style = MaterialTheme.typography.titleMedium)
-          }
+          ChoiceCard(if (es) ch.es else ch.en, "", choice == ch.id, { choice = ch.id }, modifier = Modifier.testTag("choice_${ch.id}"))
         }
         if (choice == "video_audio") {
-          Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(if (es) "OK grabar en baños o dormitorios si el equipo está ahí" else "OK to record in bathrooms or bedrooms if equipment is there", Modifier.weight(1f))
-            Switch(privateAreas, { privateAreas = it })
+          SectionCard(padding = PaddingValues(vertical = 4.dp)) {
+            SwitchRow(if (es) "OK grabar en baños o dormitorios si el equipo está ahí" else "OK to record in bathrooms or bedrooms if equipment is there", privateAreas) { privateAreas = it }
           }
         }
-        HorizontalDivider()
-        OutlinedTextField(name, { name = it }, label = { Text(if (es) "Nombre completo" else "Full name") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("signerName"))
-        Row {
-          listOf("owner" to (if (es) "Dueño" else "Owner"), "tenant" to (if (es) "Inquilino" else "Tenant"), "authorized" to (if (es) "Autorizado" else "Authorized")).forEach { (id, label) ->
-            Row(Modifier.clickable { role = id }, verticalAlignment = Alignment.CenterVertically) {
-              RadioButton(role == id, { role = id })
-              Text(label)
-            }
-          }
-        }
-        Text(if (es) "Firme aquí" else "Sign here", style = MaterialTheme.typography.labelLarge)
+        SectionCard(title = if (es) "Firma" else "Signature") {
+        FpTextField(name, { name = it }, if (es) "Nombre completo" else "Full name", modifier = Modifier.testTag("signerName"))
+        Segmented(listOf("owner" to (if (es) "Dueño" else "Owner"), "tenant" to (if (es) "Inquilino" else "Tenant"), "authorized" to (if (es) "Autorizado" else "Authorized")), role, { role = it })
+        Text(if (es) "Firme aquí" else "Sign here", style = MaterialTheme.typography.labelMedium, color = Fp.palette.muted)
         ComposeCanvas(
-          Modifier.fillMaxWidth().height(160.dp).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)).background(Color.White).testTag("signaturePad").pointerInput(Unit) {
+          Modifier.fillMaxWidth().height(170.dp).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp)).background(Color.White, RoundedCornerShape(8.dp)).testTag("signaturePad").pointerInput(Unit) {
             detectDragGestures(
               onDragStart = { p -> current = listOf(p) },
               onDrag = { change, _ -> current = current + change.position },
@@ -437,8 +473,10 @@ private fun ConsentDialog(vm: AppViewModel, c: VisitController, onClose: () -> U
             }
           }
         }
-        TextButton(onClick = { strokes.clear() }) { Text(if (es) "Borrar firma" else "Clear signature") }
-        Button(
+        LinkButton(if (es) "Borrar firma" else "Clear signature", onClick = { strokes.clear() }, color = Fp.palette.muted)
+        }
+        PrimaryButton(
+          if (es) "Firmar y aceptar" else "Sign and agree",
           onClick = {
             busy = true
             scope.launch {
@@ -447,30 +485,33 @@ private fun ConsentDialog(vm: AppViewModel, c: VisitController, onClose: () -> U
               if (ok) onClose()
             }
           },
-          enabled = !busy && name.isNotBlank() && strokes.isNotEmpty(),
-          modifier = Modifier.fillMaxWidth().height(56.dp).testTag("signAgree"),
-        ) { if (busy) CircularProgressIndicator(Modifier.width(22.dp)) else Text(if (es) "Firmar y aceptar" else "Sign and agree", fontWeight = FontWeight.Bold) }
-        TextButton(onClick = { confirmDecline = true }) { Text(if (es) "El cliente no acepta el servicio" else "Customer declines service", color = MaterialTheme.colorScheme.error) }
-        TextButton(onClick = onClose) { Text("Close") }
+          enabled = name.isNotBlank() && strokes.isNotEmpty(),
+          loading = busy,
+          tall = true,
+          modifier = Modifier.testTag("signAgree"),
+        )
+        LinkButton(if (es) "El cliente no acepta el servicio" else "Customer declines service", onClick = { confirmDecline = true }, color = MaterialTheme.colorScheme.error, modifier = Modifier.align(Alignment.CenterHorizontally))
         ui.errorBanner?.let { ErrorText(it) }
+        Spacer(Modifier.height(24.dp))
       }
     }
   }
   if (confirmDecline) {
     AlertDialog(
       onDismissRequest = { confirmDecline = false },
-      title = { Text("Customer declines service?") },
-      text = { Text("Don't enter. Tell them they can call the office any time.") },
+      containerColor = Fp.palette.card,
+      title = { Text("Customer declines service?", style = MaterialTheme.typography.titleLarge) },
+      text = { Text("Don't enter. Tell them they can call the office any time.", style = MaterialTheme.typography.bodyMedium, color = Fp.palette.muted) },
       confirmButton = {
-        TextButton(onClick = {
+        LinkButton("Yes, end the visit", onClick = {
           confirmDecline = false
           scope.launch {
             c.submitConsent("declined_service", name, role, false, null, language)
             onClose()
           }
-        }) { Text("Yes, end the visit") }
+        }, color = MaterialTheme.colorScheme.error)
       },
-      dismissButton = { TextButton(onClick = { confirmDecline = false }) { Text("Back") } },
+      dismissButton = { LinkButton("Back", onClick = { confirmDecline = false }) },
     )
   }
 }
@@ -506,21 +547,22 @@ private fun ReadingDialog(c: VisitController, onClose: () -> Unit) {
   var unit by remember { mutableStateOf("") }
   AlertDialog(
     onDismissRequest = onClose,
-    title = { Text("Add a reading") },
+    containerColor = Fp.palette.card,
+    title = { Text("Add a reading", style = MaterialTheme.typography.titleLarge) },
     text = {
-      Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        OutlinedTextField(name, { name = it }, label = { Text("What, e.g. CO ambient") }, singleLine = true)
-        OutlinedTextField(value, { value = it }, label = { Text("Value") }, singleLine = true)
-        OutlinedTextField(unit, { unit = it }, label = { Text("Unit, e.g. ppm, V, psi") }, singleLine = true)
+      Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        FpTextField(name, { name = it }, "What, e.g. CO ambient")
+        FpTextField(value, { value = it }, "Value")
+        FpTextField(unit, { unit = it }, "Unit, e.g. ppm, V, psi")
       }
     },
     confirmButton = {
       TextButton(onClick = {
         c.addReading(name.trim(), value.trim(), unit.trim())
         onClose()
-      }, enabled = name.isNotBlank() && value.isNotBlank()) { Text("Save") }
+      }, enabled = name.isNotBlank() && value.isNotBlank()) { Text("Save", style = MaterialTheme.typography.labelLarge) }
     },
-    dismissButton = { TextButton(onClick = onClose) { Text("Cancel") } },
+    dismissButton = { LinkButton("Cancel", onClick = onClose, color = Fp.palette.muted) },
   )
 }
 
@@ -529,14 +571,15 @@ private fun NoteDialog(c: VisitController, onClose: () -> Unit) {
   var text by remember { mutableStateOf("") }
   AlertDialog(
     onDismissRequest = onClose,
-    title = { Text("Add a note") },
-    text = { OutlinedTextField(text, { text = it }, minLines = 3, modifier = Modifier.fillMaxWidth()) },
+    containerColor = Fp.palette.card,
+    title = { Text("Add a note", style = MaterialTheme.typography.titleLarge) },
+    text = { FpTextField(text, { text = it }, "Note", singleLine = false, minLines = 3) },
     confirmButton = {
       TextButton(onClick = {
         c.addNote(text)
         onClose()
-      }, enabled = text.isNotBlank()) { Text("Save") }
+      }, enabled = text.isNotBlank()) { Text("Save", style = MaterialTheme.typography.labelLarge) }
     },
-    dismissButton = { TextButton(onClick = onClose) { Text("Cancel") } },
+    dismissButton = { LinkButton("Cancel", onClick = onClose, color = Fp.palette.muted) },
   )
 }

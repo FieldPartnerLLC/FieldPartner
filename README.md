@@ -71,49 +71,48 @@ Experts (who answer calls from technicians) and other admins are invited the sam
 
 1. Open **FieldPartner**.
 2. Tap **I have an invite code**.
-3. Server address: leave it as filled in, unless the invite message shows a different one. Then type that.
-4. Invite code: type the 8 letters. Dash, spaces and lower case are all fine.
-5. Tap **Check code**. The app shows the company and "invited <your name> (<your email>) as a technician". If the name is wrong, stop and ask the manager.
-6. Choose a password (10 or more characters), type it again, tap **Create my account**.
-7. Next time, sign in with that email and password. The code is used up.
+3. Invite code: type the 8 letters. Dash, spaces and lower case are all fine. (The live server address is built into the online APK. Only if the invite message shows a different server, tap **Server settings** and type it.)
+4. Tap **Continue**. The app shows your name and email and "<company> invited <your name> as a technician". If the name is wrong, stop and ask the manager.
+5. Choose a password (10 or more characters), type it again, tap **Create my account**.
+6. Next time, sign in with that email and password. The code is used up.
 
 ## F. First-run setup and glasses connection (technician)
 
-Setup starts by itself after the first sign-in. It runs again any time from Settings > **Run setup again**.
+Setup starts by itself after the first sign-in. It runs again any time from **Menu** > **Run setup again**, or **Glasses** > **Test video and run setup**.
 
 **Before you start:** charge the glasses and the case. Install the **Meta AI** app (Google Play or App Store) and sign in with your Meta account.
 
-**Setup 1 of 4: Allow access.** Tap **Allow** and accept each prompt: Microphone (required), Nearby devices (Bluetooth, for the glasses), Location (stamps where the customer signed), Notifications (Android), Camera. Each row turns to a green check. Tap **Next**.
+**Step 1 of 4: Allow access.** Tap **Allow access** and accept each prompt: Microphone (required), Nearby devices (Bluetooth, for the glasses), Location (stamps where the customer signed), Notifications (Android), Camera. Each row turns to a green check. Tap **Continue**.
 
-**Setup 2 of 4: Your camera.** Pick **Meta glasses**. (No glasses yet: pick **Phone camera** and skip to step 4. Test builds also offer **Simulated glasses**, which plays a demo video.) Tap **Next**.
+**Step 2 of 4: Choose your camera.** Pick **Meta glasses**. (No glasses yet: pick **Phone camera** and skip to step 4. Test builds also offer **Simulated glasses**, which plays a demo video.) Tap **Continue**.
 
-**Setup 3 of 4: Connect your glasses.** Do A to E in order. Each turns into a green check.
+**Step 3 of 4: Connect your glasses.** Do A to E in order. Each turns into a green check.
 - **A. Meta AI app installed and your glasses paired in it.** Tap **Get Meta AI** if it is not installed. Open Meta AI, tap the glasses icon, follow its pairing steps until Meta AI shows your glasses as connected.
 - **B. Developer Mode on in Meta AI.** In Meta AI: **Settings** (gear) > **App info** > tap the **version number 5 times** > turn on **Developer Mode**. This is needed until your company registers FieldPartner in the Meta Wearables Developer Center (see `docs/EMULATOR-AND-STORES.md` section 6). After that, skip this step.
 - **C. FieldPartner connected to your glasses.** Tap **Connect**. Meta AI opens and asks to allow FieldPartner. Tap **Allow**. You come back to FieldPartner and C turns green.
 - **D. Glasses camera allowed.** Tap **Allow camera**. Meta AI opens once more. Choose **Allow always**. Back in FieldPartner, D turns green within 2 seconds.
 - **E. Glasses found.** Take the glasses out of the case, unfold them, put them on. The row shows the glasses name and battery.
 
-Tap **Next: test the video**.
+Tap **Continue to video test**.
 
-**Setup 4 of 4: Test the video.** Tap **Start test** and look at something. Within 10 seconds a picture from the glasses appears and "Video received" turns green. Tap **Next**.
+**Step 4 of 4: Test the video.** Tap **Start test** and look at something. Within 10 seconds a picture from the glasses appears and "Video received" turns green. Tap **Continue**.
 If nothing appears after 20 seconds: glasses unfolded and worn, Bluetooth on, step D allowed, phone close by. Tap **Stop**, then **Start test** again.
 
 **You're ready.** The screen lists the voice commands. Tap **Go to my jobs**.
 
 ## G. First visit (technician)
 
-1. **Today** lists your jobs. No job? Tap **+** for a walk-in job (trade, title, what the customer says is wrong, address, customer name and phone).
-2. Open the job > **Start visit**. The checklist shows glasses, batteries, storage, server and voice commands. Tap **Start recording and go to the door**.
+1. The app has three tabs at the bottom: **Jobs** (home), **Glasses** (connection and video source) and **Menu** (profile, wake phrase, language, help, sign out). **Jobs** lists your jobs. No job? Tap **Start a walk-in job** or **+** (trade, title, what the customer says is wrong, customer name, phone and address).
+2. Tap **Start** on the job card, or open it and tap **Start visit**. The checklist shows glasses, batteries, storage, server and voice commands. Tap **Start recording**.
 3. At the door: tap **Get customer consent**. The customer reads it (English or Spanish), picks Video and audio / Audio only / No recording, types their name and signs with a finger. Tap **Sign and agree**. Video goes to the AI and the expert only after the customer picks Video and audio.
 4. Work. The AI hears nothing until you call it:
    - Say **"hey dispatch, what does three flashes mean on this board?"** (your company's wake phrase is shown on screen), or
-   - tap **Talk**, or press a Bluetooth clip button, or type in **Type a question for your partner** and tap **Ask**.
+   - tap **Talk**, or press a Bluetooth clip button, or type in **Ask your partner a question** and tap the send button.
    - **"Partner, stop"** stops it. **"hey dispatch, pause camera"** before a bathroom or bedroom; **"camera on"** after.
    - Tap **Reading** or say "save a reading: CO ambient 4 ppm". Tap **Note** for notes.
    - If the AI sees a hazard, a red **STOP** bar appears and it speaks. Tap the bar to acknowledge.
 5. Need a person: say **"hey dispatch, call expert"** or tap **Expert**. The expert is paged (portal, plus WhatsApp or SMS if set up).
-6. Done: tap **End** > **End visit and build report**. The AI drafts the report in about 30 seconds. Correct anything, then **Approve and send**. The customer gets it by text and email if those are set up; otherwise the screen shows a link to share.
+6. Done: tap **End** > **End visit**. The AI drafts the report in about 30 seconds. Correct anything, then **Approve and send**. The customer gets it by text and email if those are set up; otherwise the screen shows a link to share.
 
 ## H. Expert joins a live visit
 
