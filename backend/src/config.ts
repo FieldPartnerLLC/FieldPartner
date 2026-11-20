@@ -45,6 +45,12 @@ const schema = z.object({
   SMTP_FROM: z.string().optional(),
 
   ESCALATION_TIMEOUT_SECONDS: z.coerce.number().default(120),
+  // Anyone can create a company account from the portal. Set to false on a private server.
+  SIGNUP_ENABLED: z
+    .string()
+    .default("true")
+    .transform((v) => v.toLowerCase() !== "false"),
+  INVITE_DAYS: z.coerce.number().int().min(1).max(90).default(14),
 });
 
 export type Config = z.infer<typeof schema>;

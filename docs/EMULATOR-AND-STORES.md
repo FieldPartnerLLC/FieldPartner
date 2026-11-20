@@ -118,9 +118,9 @@ It plays a recorded "glasses" video of a furnace control board (blinking 3 flash
 
 | Part | Tests | Where they ran |
 |---|---|---|
-| Backend | 46 scenario tests | Embedded database; also run on Postgres 16 earlier |
+| Backend | 49 scenario tests (incl. company signup, invite and join) | Embedded database; also run on Postgres 16 earlier |
 | AI agent | 21 tests | Python |
-| Android | 52 tests: command parsing (same cases as iPhone), agent protocol, offline event queue, upload queue, audio conversion, API client with retries, two full screen flows (Robolectric), and one complete visit against the real backend | JVM; debug and release (R8) builds compile |
+| Android | 57 tests: company signup, invite code join and first-run setup flows, rendered screenshots, command parsing (same cases as iPhone), agent protocol, offline event queue, upload queue, audio conversion, API client with retries, two full screen flows (Robolectric), and one complete visit against the real backend | JVM; debug and release (R8) builds compile |
 | iPhone | 19 core logic tests | Swift on Linux. The full app must be compiled in Xcode (step 4) |
 | Live AI path | `tools/virtual_tech.py` | Runs on your Mac with your keys (step 2) |
 

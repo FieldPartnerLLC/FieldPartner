@@ -24,6 +24,37 @@ final class AppModel: ObservableObject {
   }
 
   var signedIn: Bool { user != nil }
+  /// True until this user finishes first-run setup (permissions, glasses, video test) on this phone.
+  var needsSetup: Bool { user.map { AppSettings.shared.setupDoneFor != $0.id } ?? false }
+
+  func finishSetup() {
+    if let id = user?.id { AppSettings.shared.setupDoneFor = id }
+    objectWillChange.send()
+  }
+
+  func checkInvite(server: String, code: String) async -> InviteInfo? {
+    setServer(server)
+    do {
+      return try await api.inviteInfo(code: code)
+    } catch {
+      errorMessage = error.localizedDescription
+      return nil
+    }
+  }
+
+  func acceptInvite(code: String, password: String) async {
+    do {
+      let r = try await api.acceptInvite(code: code, password: password)
+      Keychain.set(r.token, for: "token")
+      api.token = r.token
+      user = r.user
+      company = r.company
+      await UploadManager.shared.configure(api: api)
+      await refreshMe()
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
 
   func setServer(_ urlString: String) {
     let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))

@@ -9,6 +9,10 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
 
 /**
  * Runs the Android API layer against the real FieldPartner backend: the same calls the
@@ -19,6 +23,38 @@ class BackendContractTest {
   private val base = System.getenv("FP_BACKEND_URL")
   private val email = System.getenv("FP_TECH_EMAIL") ?: "tech@fieldpartner.local"
   private val password = System.getenv("FP_TECH_PASSWORD") ?: ""
+
+  /** Company signs up (portal), invites a tech, the tech joins with the code in the app, then works. */
+  @Test fun signupInviteJoinAgainstRealBackend() = runBlocking {
+    assumeTrue("FP_BACKEND_URL not set", !base.isNullOrBlank())
+    val http = okhttp3.OkHttpClient()
+    val json = "application/json".toMediaType()
+    fun post(path: String, body: String, token: String? = null): String {
+      val req = okhttp3.Request.Builder().url(base!!.trimEnd('/') + path).post(body.toRequestBody(json)).apply { if (token != null) header("Authorization", "Bearer $token") }.build()
+      http.newCall(req).execute().use { r ->
+        val t = r.body!!.string()
+        if (!r.isSuccessful) throw AssertionError("$path -> ${r.code} $t")
+        return t
+      }
+    }
+    val stamp = System.currentTimeMillis()
+    val signup = FpJson.parseToJsonElement(post("/auth/signup", """{"companyName":"Contract Co $stamp","name":"Owner","email":"owner$stamp@contract.test","password":"contract-pass-1"}""")).jsonObject
+    val adminToken = signup["token"]!!.jsonPrimitive.content
+    val invite = FpJson.parseToJsonElement(post("/admin/invites", """{"name":"New Tech","email":"tech$stamp@contract.test","trades":["electrical"],"send":false}""", adminToken)).jsonObject
+    val code = invite["invite"]!!.jsonObject["code"]!!.jsonPrimitive.content
+
+    val api = ApiClient(base!!, null)
+    val info = api.inviteInfo(code.lowercase())
+    assertEquals("New Tech", info.name)
+    assertTrue(info.companyName.startsWith("Contract Co"))
+    val joined = api.acceptInvite(code, "new-tech-pass-1")
+    api.token = joined.token
+    assertEquals("tech", joined.user.role)
+    assertEquals(listOf("electrical"), joined.user.trades)
+    val job = api.createJob("electrical", "Breaker trips", "Kitchen breaker trips", "2 Test Ave", "", "")
+    assertEquals(joined.company!!.id, job.company_id)
+    assertNotNull(api.startVisit(job.id).visit.id)
+  }
 
   @Test fun fullVisitAgainstRealBackend() = runBlocking {
     assumeTrue("FP_BACKEND_URL not set", !base.isNullOrBlank() && password.isNotBlank())

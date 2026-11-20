@@ -20,6 +20,20 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.automirrored.outlined.Logout
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.Map
+import androidx.compose.material.icons.outlined.PanTool
+import androidx.compose.material.icons.outlined.Person
+import androidx.compose.material.icons.outlined.Place
+import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.material.icons.outlined.VpnKey
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Refresh
@@ -45,6 +59,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -74,9 +89,11 @@ import kotlinx.coroutines.launch
 @Composable
 fun FpScaffold(title: String, onBack: (() -> Unit)? = null, actions: @Composable () -> Unit = {}, content: @Composable (Modifier) -> Unit) {
   Scaffold(
+    containerColor = MaterialTheme.colorScheme.background,
     topBar = {
       TopAppBar(
-        title = { Text(title) },
+        colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface, titleContentColor = MaterialTheme.colorScheme.onSurface),
+        title = { Text(title, style = MaterialTheme.typography.titleLarge) },
         navigationIcon = { if (onBack != null) IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") } },
         actions = { actions() },
       )
@@ -99,15 +116,20 @@ fun LoginScreen(vm: AppViewModel) {
   var server by remember { mutableStateOf(vm.app.settings.current.apiBaseUrl) }
   Column(Modifier.fillMaxSize().padding(24.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
     Spacer(Modifier.height(40.dp))
-    Text("FieldPartner", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-    Text("AI partner for field technicians", style = MaterialTheme.typography.bodyLarge)
+    Text("FieldPartner", style = MaterialTheme.typography.headlineLarge, color = MaterialTheme.colorScheme.primary)
+    Text("Your AI partner on every job", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Spacer(Modifier.height(8.dp))
     OutlinedTextField(email, { email = it }, label = { Text("Email") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email), modifier = Modifier.fillMaxWidth().testTag("email"))
     OutlinedTextField(password, { password = it }, label = { Text("Password") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth().testTag("password"))
-    OutlinedTextField(server, { server = it }, label = { Text("Server address") }, singleLine = true, supportingText = { Text("Your office gives you this. On the emulator: http://<Mac IP>:8080") }, modifier = Modifier.fillMaxWidth().testTag("server"))
+    OutlinedTextField(server, { server = it }, label = { Text("Server address") }, singleLine = true, supportingText = { Text("Filled in for you. Change it only if your manager gives you a different address.") }, modifier = Modifier.fillMaxWidth().testTag("server"))
     Button(onClick = { vm.login(email, password, server) }, enabled = !state.busy && email.isNotBlank() && password.isNotBlank(), modifier = Modifier.fillMaxWidth().height(52.dp).testTag("signin")) {
-      if (state.busy) CircularProgressIndicator(Modifier.width(22.dp)) else Text("Sign in")
+      if (state.busy) CircularProgressIndicator(Modifier.width(22.dp), color = MaterialTheme.colorScheme.onPrimary) else Text("Sign in")
     }
     ErrorText(state.error)
+    HorizontalDivider()
+    Text("New technician?", style = MaterialTheme.typography.titleSmall)
+    OutlinedButton(onClick = { vm.clearError(); vm.push(Screen.Join) }, modifier = Modifier.fillMaxWidth().height(52.dp).testTag("haveInvite")) { IconText(Icons.Outlined.VpnKey, "I have an invite code") }
+    Text("No code? Your manager creates one on the FieldPartner portal under Team.", style = MaterialTheme.typography.bodySmall)
   }
 }
 
@@ -155,11 +177,12 @@ fun GlassesStatusRow(vm: AppViewModel) {
           else -> "${gs.deviceName ?: "Glasses"} ready${gs.battery?.let { ", battery $it%" } ?: ""}" to true
         }
     }
-  Card(Modifier.fillMaxWidth().clickable { vm.push(Screen.Settings) }) {
-    Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-      Text(if (ok) "●" else "●", color = if (ok) Color(0xFF2E7D32) else Color(0xFFC62828))
-      Spacer(Modifier.width(8.dp))
-      Text(label)
+  Card(Modifier.fillMaxWidth().clickable { vm.push(Screen.Settings) }, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+      StatusIcon(if (ok) Status.OK else Status.WARN)
+      Spacer(Modifier.width(10.dp))
+      Text(label, modifier = Modifier.weight(1f))
+      Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, contentDescription = "Open settings", tint = MaterialTheme.colorScheme.outline)
     }
   }
 }
@@ -168,16 +191,27 @@ private fun timeOf(iso: String?): String =
   iso?.let { runCatching { OffsetDateTime.parse(it).atZoneSameInstant(java.time.ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("h:mm a")) }.getOrNull() } ?: ""
 
 @Composable
+private fun MetaLine(icon: androidx.compose.ui.graphics.vector.ImageVector, text: String) {
+  Row(verticalAlignment = Alignment.CenterVertically) {
+    Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(16.dp))
+    Spacer(Modifier.width(6.dp))
+    Text(text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+  }
+}
+
+@Composable
 fun JobCard(job: Job, onClick: () -> Unit) {
-  Card(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
-    Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-      Row {
-        Text(job.title, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-        Text(timeOf(job.scheduled_at), style = MaterialTheme.typography.labelMedium)
+  Card(Modifier.fillMaxWidth().clickable(onClick = onClick), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+      Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(job.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+        val t = timeOf(job.scheduled_at)
+        if (t.isNotEmpty()) Text(t, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
       }
-      Text("${job.trade.uppercase()} · ${job.customer_name ?: "No customer"}", style = MaterialTheme.typography.labelMedium)
-      job.address?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-      job.last_visit?.let { Text("Last visit: ${it.state}${it.report_status?.let { r -> ", report $r" } ?: ""}", style = MaterialTheme.typography.labelSmall) }
+      Text(job.trade.uppercase(), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+      MetaLine(Icons.Outlined.Person, job.customer_name ?: "No customer on file")
+      job.address?.let { MetaLine(Icons.Outlined.Place, it) }
+      job.last_visit?.let { MetaLine(Icons.Outlined.History, "Last visit: ${it.state.replace('_', ' ')}${it.report_status?.let { r -> ", report $r" } ?: ""}") }
     }
   }
 }
@@ -195,21 +229,35 @@ fun JobDetailScreen(vm: AppViewModel, job: Job, onStart: (Job) -> Unit) {
       job.customer_name?.let { LabeledBlock("Customer", listOfNotNull(it, job.customer_phone).joinToString("  ")) }
       job.address?.let { addr ->
         LabeledBlock("Address", addr)
-        TextButton(onClick = { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=" + Uri.encode(addr)))) }) { Text("Open in Maps") }
+        TextButton(onClick = { runCatching { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=" + Uri.encode(addr)))) } }) { IconText(Icons.Outlined.Map, "Open in Maps") }
       }
       job.access_notes?.let { LabeledBlock("Access notes", it) }
       job.recording_pref?.let { LabeledBlock("Customer recording preference", it) }
       val trade = state.trades.firstOrNull { it.id == job.trade }?.profile
-      trade?.preWorkReadings?.takeIf { it.isNotEmpty() }?.let { r -> LabeledBlock("Safety readings before work", r.joinToString("\n") { "• ${it.label}${it.unit?.let { u -> " ($u)" } ?: ""}" }) }
-      trade?.stopRules?.takeIf { it.isNotEmpty() }?.let { LabeledBlock("Stop and call the expert if", it.joinToString("\n") { s -> "• $s" }) }
+      trade?.preWorkReadings?.takeIf { it.isNotEmpty() }?.let { r -> ListBlock("Safety readings before work", r.map { "${it.label}${it.unit?.let { u -> " ($u)" } ?: ""}" }, Icons.Outlined.Speed) }
+      trade?.stopRules?.takeIf { it.isNotEmpty() }?.let { ListBlock("Stop and call the expert if", it, Icons.Outlined.PanTool) }
       HorizontalDivider()
       Button(onClick = { onStart(job) }, enabled = !state.busy, modifier = Modifier.fillMaxWidth().height(56.dp).testTag("startVisit")) {
-        if (state.busy) CircularProgressIndicator(Modifier.width(22.dp)) else Text(if (vm.visit != null) "Return to visit" else "Start visit")
+        if (state.busy) CircularProgressIndicator(Modifier.width(22.dp), color = MaterialTheme.colorScheme.onPrimary) else IconText(Icons.Filled.PlayArrow, if (vm.visit != null) "Return to visit" else "Start visit")
       }
       job.last_visit?.takeIf { it.ended_at != null }?.let { lv ->
-        OutlinedButton(onClick = { vm.push(Screen.Report(lv.id)) }, modifier = Modifier.fillMaxWidth()) { Text("Review last report") }
+        OutlinedButton(onClick = { vm.push(Screen.Report(lv.id)) }, modifier = Modifier.fillMaxWidth()) { IconText(Icons.Outlined.Description, "Review last report") }
       }
       ErrorText(state.error)
+    }
+  }
+}
+
+@Composable
+fun ListBlock(label: String, items: List<String>, icon: androidx.compose.ui.graphics.vector.ImageVector) {
+  Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+    items.forEach { item ->
+      Row(verticalAlignment = Alignment.Top) {
+        Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp).size(16.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(item, style = MaterialTheme.typography.bodyLarge)
+      }
     }
   }
 }
@@ -340,7 +388,8 @@ fun SettingsScreen(vm: AppViewModel, activity: MainActivity) {
       SwitchRow("Upload video on cellular", s.uploadVideoOnCellular) { v -> vm.app.settings.update { it.copy(uploadVideoOnCellular = v) } }
       message?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
       HorizontalDivider()
-      OutlinedButton(onClick = { scope.launch { vm.logout() } }, enabled = vm.visit == null) { Text("Sign out") }
+      OutlinedButton(onClick = { vm.push(Screen.Setup) }, enabled = vm.visit == null) { IconText(Icons.Outlined.Tune, "Run setup again") }
+      OutlinedButton(onClick = { scope.launch { vm.logout() } }, enabled = vm.visit == null) { IconText(Icons.AutoMirrored.Outlined.Logout, "Sign out") }
       Text("Version ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})", style = MaterialTheme.typography.labelSmall)
     }
   }

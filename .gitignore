@@ -19,3 +19,7 @@ android/.idea/
 android/*.iml
 android/app/*.jks
 *.keystore
+
+# Built app files: share them directly, not through git (GitHub limit is 100 MB per file)
+*.apk
+*.aab

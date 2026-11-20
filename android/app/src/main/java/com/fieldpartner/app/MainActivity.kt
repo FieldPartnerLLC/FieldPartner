@@ -10,16 +10,15 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.fieldpartner.app.core.Job
 import com.fieldpartner.app.ui.AppViewModel
+import com.fieldpartner.app.ui.FpTheme
 import com.fieldpartner.app.ui.JobDetailScreen
 import com.fieldpartner.app.ui.JobsScreen
+import com.fieldpartner.app.ui.JoinScreen
+import com.fieldpartner.app.ui.SetupScreen
 import com.fieldpartner.app.ui.LoginScreen
 import com.fieldpartner.app.ui.ReportScreen
 import com.fieldpartner.app.ui.Screen
@@ -48,6 +47,19 @@ class MainActivity : ComponentActivity() {
       vm.startVisit(job)
     }
 
+  private var permsCallback: ((Map<String, Boolean>) -> Unit)? = null
+  private val anyPermissions =
+    registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { r ->
+      permsCallback?.invoke(r)
+      permsCallback = null
+    }
+
+  /** Asks Android for runtime permissions, then calls [done] with the result. */
+  fun requestPermissions(perms: Array<String>, done: (Map<String, Boolean>) -> Unit) {
+    permsCallback = done
+    anyPermissions.launch(perms)
+  }
+
   /** Glasses camera permission is granted in the Meta AI app, not by Android. */
   private val glassesCameraPermission =
     registerForActivityResult(Wearables.RequestPermissionContract()) { result ->
@@ -63,14 +75,15 @@ class MainActivity : ComponentActivity() {
     super.onCreate(savedInstanceState)
     handleIntent(intent)
     setContent {
-      val dark = isSystemInDarkTheme()
-      MaterialTheme(colorScheme = if (dark) darkColorScheme() else lightColorScheme()) {
+      FpTheme {
         val state by vm.state.collectAsStateWithLifecycle()
         BackHandler(enabled = state.stack.size > 1 && state.screen !is Screen.Visit) { vm.back() }
         // Back during a visit must not close the app and kill the visit: send the app to the background instead.
         BackHandler(enabled = state.screen is Screen.Visit) { moveTaskToBack(true) }
         when (val s = state.screen) {
           Screen.Login -> LoginScreen(vm)
+          Screen.Join -> JoinScreen(vm)
+          Screen.Setup -> SetupScreen(vm, this)
           Screen.Jobs -> JobsScreen(vm)
           is Screen.JobDetail -> JobDetailScreen(vm, s.job, onStart = { requestVisit(it) })
           Screen.WalkIn -> WalkInScreen(vm)

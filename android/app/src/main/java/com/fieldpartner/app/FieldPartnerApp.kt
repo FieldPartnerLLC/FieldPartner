@@ -48,7 +48,8 @@ class FieldPartnerApp : Application() {
     pendingEnds = PendingEnds(File(filesDir, "state/pending-ends.txt"))
     runCatching { LiveKit.init(this) }.onFailure { Log.w("App", "LiveKit init: ${it.message}") }
     // Simulated glasses must enable MockDeviceKit before the toolkit starts, so only start it here for real glasses.
-    if (settings.current.videoSource == VideoSource.GLASSES) runCatching { glasses.initialize() }.onFailure { Log.w("App", "glasses init: ${it.message}") }
+    if (settings.current.videoSource == VideoSource.GLASSES &&
+      checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) == android.content.pm.PackageManager.PERMISSION_GRANTED) runCatching { glasses.initialize() }.onFailure { Log.w("App", "glasses init: ${it.message}") }
     watchNetwork()
     kickUploads()
   }

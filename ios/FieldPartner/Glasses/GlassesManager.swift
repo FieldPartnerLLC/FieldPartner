@@ -1,3 +1,4 @@
+import CoreImage
 import CoreMedia
 import CoreVideo
 import Foundation
@@ -39,6 +40,13 @@ final class GlassesManager: ObservableObject {
   @Published var errorMessage: String?
   /// True while Meta's simulated glasses (MockDeviceKit) stand in for real ones.
   @Published private(set) var simulated = false
+  /// A still from the live stream about once a second while `previewEnabled` (first-run setup).
+  @Published private(set) var previewImage: UIImage?
+  /// Frames received since the app started. Setup uses it to prove video arrives.
+  @Published private(set) var totalFrames = 0
+  nonisolated(unsafe) var previewEnabled = false
+  nonisolated(unsafe) private var lastPreviewAt = Date.distantPast
+  private let ciContext = CIContext()
 
   nonisolated(unsafe) var onPixelBuffer: ((CVPixelBuffer) -> Void)?
   nonisolated(unsafe) var onSampleBuffer: ((CMSampleBuffer) -> Void)?
@@ -281,6 +289,14 @@ final class GlassesManager: ObservableObject {
       self.onSampleBuffer?(sample)
       if let pb = self.decoder.decode(sample) {
         self.onPixelBuffer?(pb)
+        if self.previewEnabled, Date().timeIntervalSince(self.lastPreviewAt) > 0.8 {
+          self.lastPreviewAt = Date()
+          let ci = CIImage(cvPixelBuffer: pb)
+          if let cg = self.ciContext.createCGImage(ci, from: ci.extent) {
+            let image = UIImage(cgImage: cg)
+            Task { @MainActor [weak self] in self?.previewImage = image }
+          }
+        }
       }
       Task { @MainActor [weak self] in self?.countFrame() }
     }.store(in: streamTokens)
@@ -302,7 +318,13 @@ final class GlassesManager: ObservableObject {
     }
   }
 
+  /// Silent check (no app switch) of the glasses camera permission in Meta AI.
+  func cameraPermissionGranted() async -> Bool {
+    (try? await wearables.checkPermissionStatus(.camera)) == .granted
+  }
+
   private func countFrame() {
+    totalFrames += 1
     lastFrameAt = Date()
     frameCount += 1
     let elapsed = Date().timeIntervalSince(fpsWindowStart)

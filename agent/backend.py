@@ -20,7 +20,9 @@ logger = logging.getLogger("fieldpartner.backend")
 
 class BackendClient:
     def __init__(self, base_url: str, token: str, visit_id: str, *, timeout: float = 10.0, max_queue: int = 5000) -> None:
-        self.base = base_url.rstrip("/")
+        base = base_url.strip().rstrip("/")
+        # Hosting platforms often hand over "host:port" for private networking.
+        self.base = base if base.startswith(("http://", "https://")) else f"http://{base}"
         self.token = token
         self.visit_id = visit_id
         self.timeout = aiohttp.ClientTimeout(total=timeout)

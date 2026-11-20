@@ -25,6 +25,13 @@ struct CompanyInfo: Codable, Equatable {
   let address: String?
 }
 
+struct InviteInfo: Codable, Equatable {
+  let companyName: String
+  let name: String
+  let email: String
+  let role: String
+}
+
 struct LoginResponse: Codable {
   let token: String
   let user: UserInfo

@@ -162,6 +162,16 @@ class ApiClient(
   suspend fun login(email: String, password: String): LoginResponse =
     request("POST", "/auth/login", LoginResponse.serializer(), enc(LoginBody(email, password)), authenticated = false)
 
+  /** Who an invite code is for. Accepts the code with or without the dash, any case. */
+  suspend fun inviteInfo(code: String): InviteInfo =
+    request("GET", "/auth/invite/" + code.trim().replace(" ", ""), InviteInfo.serializer(), authenticated = false, retries = 1)
+
+  @Serializable private data class AcceptBody(val code: String, val password: String)
+
+  /** Creates the technician's account from the invite and signs them in. */
+  suspend fun acceptInvite(code: String, password: String): LoginResponse =
+    request("POST", "/auth/accept-invite", LoginResponse.serializer(), enc(AcceptBody(code.trim(), password)), authenticated = false, retries = 0)
+
   suspend fun me(): MeResponse = request("GET", "/me", MeResponse.serializer())
 
   suspend fun jobs(date: LocalDate = LocalDate.now(), zone: ZoneId = ZoneId.systemDefault()): List<Job> =

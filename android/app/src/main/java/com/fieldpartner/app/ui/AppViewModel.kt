@@ -6,7 +6,9 @@ import androidx.lifecycle.viewModelScope
 import com.fieldpartner.app.FieldPartnerApp
 import com.fieldpartner.app.core.ApiException
 import com.fieldpartner.app.core.CompanyInfo
+import com.fieldpartner.app.core.InviteInfo
 import com.fieldpartner.app.core.Job
+import com.fieldpartner.app.core.LoginResponse
 import com.fieldpartner.app.core.TradeProfileRow
 import com.fieldpartner.app.core.UserInfo
 import com.fieldpartner.app.visit.VisitController
@@ -19,6 +21,8 @@ import kotlinx.coroutines.launch
 /** Screens in the app. Kept as a tiny stack instead of a navigation library. */
 sealed class Screen {
   data object Login : Screen()
+  data object Join : Screen()
+  data object Setup : Screen()
   data object Jobs : Screen()
   data class JobDetail(val job: Job) : Screen()
   data object WalkIn : Screen()
@@ -57,6 +61,48 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
     }
   }
 
+  /** After any sign-in: first-run setup for a user who hasn't done it on this phone, else today's jobs. */
+  private fun signedIn(r: LoginResponse) {
+    app.setToken(r.token)
+    val home = if (app.settings.setupDoneFor == r.user.id) Screen.Jobs else Screen.Setup
+    _state.update { it.copy(user = r.user, company = r.company, busy = false, error = null, stack = listOf(home)) }
+    refreshMe()
+  }
+
+  fun finishSetup() {
+    _state.value.user?.let { app.settings.setupDoneFor = it.id }
+    _state.update { it.copy(stack = listOf(Screen.Jobs)) }
+    refreshJobs()
+  }
+
+  /** Step 1 of joining: check the invite code and show who it is for. */
+  fun checkInvite(code: String, server: String, onResult: (InviteInfo?) -> Unit) {
+    viewModelScope.launch {
+      _state.update { it.copy(busy = true, error = null) }
+      try {
+        if (server.isNotBlank() && server != app.settings.current.apiBaseUrl) app.setBaseUrl(server)
+        val info = app.api.inviteInfo(code)
+        _state.update { it.copy(busy = false) }
+        onResult(info)
+      } catch (e: Exception) {
+        _state.update { it.copy(busy = false, error = e.message ?: "Could not check the code") }
+        onResult(null)
+      }
+    }
+  }
+
+  /** Step 2 of joining: pick a password; the account is created and signed in. */
+  fun acceptInvite(code: String, password: String) {
+    viewModelScope.launch {
+      _state.update { it.copy(busy = true, error = null) }
+      try {
+        signedIn(app.api.acceptInvite(code, password))
+      } catch (e: Exception) {
+        _state.update { it.copy(busy = false, error = e.message ?: "Could not create the account") }
+      }
+    }
+  }
+
   fun push(s: Screen) = _state.update { it.copy(stack = it.stack + s, error = null) }
 
   fun back(): Boolean {
@@ -74,10 +120,7 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
       _state.update { it.copy(busy = true, error = null) }
       try {
         if (server.isNotBlank() && server != app.settings.current.apiBaseUrl) app.setBaseUrl(server)
-        val r = app.api.login(email.trim(), password)
-        app.setToken(r.token)
-        _state.update { it.copy(user = r.user, company = r.company, busy = false, stack = listOf(Screen.Jobs)) }
-        refreshMe()
+        signedIn(app.api.login(email.trim(), password))
       } catch (e: Exception) {
         _state.update { it.copy(busy = false, error = e.message ?: "Sign-in failed") }
       }
@@ -94,6 +137,10 @@ class AppViewModel(application: Application) : AndroidViewModel(application) {
       try {
         val me = app.api.me()
         _state.update { it.copy(user = me.user, company = me.company, trades = me.trades) }
+        // Signed in from an earlier session but setup was never finished on this phone.
+        if (app.settings.setupDoneFor != me.user.id && _state.value.stack == listOf(Screen.Jobs)) {
+          _state.update { it.copy(stack = listOf(Screen.Setup)) }
+        }
         refreshJobs()
       } catch (e: ApiException.NotSignedIn) {
         logout()

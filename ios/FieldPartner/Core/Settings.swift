@@ -40,6 +40,8 @@ final class AppSettings: ObservableObject {
   @Published var language: String { didSet { d.set(language, forKey: "language") } }
   @Published var usePhoneCamera: Bool { didSet { d.set(usePhoneCamera, forKey: "usePhoneCamera") } }
   @Published var showTranscript: Bool { didSet { d.set(showTranscript, forKey: "showTranscript") } }
+  /// Id of the user who finished first-run setup on this phone. A different user sees setup again.
+  @Published var setupDoneFor: String { didSet { d.set(setupDoneFor, forKey: "setupDoneFor") } }
 
   private init() {
     let bundled = (Bundle.main.object(forInfoDictionaryKey: "FPAPIBaseURL") as? String) ?? ""
@@ -50,6 +52,7 @@ final class AppSettings: ObservableObject {
     language = d.string(forKey: "language") ?? "en-US"
     usePhoneCamera = d.bool(forKey: "usePhoneCamera")
     showTranscript = d.object(forKey: "showTranscript") as? Bool ?? true
+    setupDoneFor = d.string(forKey: "setupDoneFor") ?? ""
   }
 }
 

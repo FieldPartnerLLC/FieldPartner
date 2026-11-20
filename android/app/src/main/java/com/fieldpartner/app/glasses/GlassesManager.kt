@@ -63,6 +63,12 @@ class GlassesManager(private val app: Context) {
   private val _status = MutableStateFlow(Status())
   val status: StateFlow<Status> = _status.asStateFlow()
 
+  /** A small still from the live stream, refreshed about once a second while [previewEnabled]. Used by setup. */
+  private val _preview = MutableStateFlow<android.graphics.Bitmap?>(null)
+  val preview: StateFlow<android.graphics.Bitmap?> = _preview.asStateFlow()
+  @Volatile var previewEnabled = false
+  @Volatile private var lastPreviewAt = 0L
+
   /** Called for every decoded frame, on a background thread. The buffer is only valid during the call. */
   @Volatile var onFrame: ((ByteBuffer, Int, Int) -> Unit)? = null
 
@@ -76,9 +82,20 @@ class GlassesManager(private val app: Context) {
   private var restarts = 0
   @Volatile private var wantStream = false
 
+  /** Starts the toolkit. Call after Bluetooth permission is granted. Safe to call again after a failure. */
   fun initialize() {
     if (initialized) return
-    Wearables.initialize(app).onFailure { err, _ -> setError("Glasses toolkit failed to start: ${err.description}") }
+    var ok = true
+    try {
+      Wearables.initialize(app).onFailure { err, _ ->
+        ok = false
+        setError("Glasses toolkit failed to start: ${err.description}")
+      }
+    } catch (e: Exception) {
+      ok = false
+      setError("Glasses toolkit failed to start: ${e.message}")
+    }
+    if (!ok) return
     initialized = true
     scope.launch { Wearables.registrationState.collect { s -> _status.update { it.copy(registration = s.name) } } }
     scope.launch {
@@ -211,7 +228,13 @@ class GlassesManager(private val app: Context) {
             var n = 0L
             stream.videoStream.collect { frame ->
               lastFrameAt = System.currentTimeMillis()
-              if (!frame.isCompressed) onFrame?.invoke(frame.buffer, frame.width, frame.height)
+              if (!frame.isCompressed) {
+                onFrame?.invoke(frame.buffer, frame.width, frame.height)
+                if (previewEnabled && System.currentTimeMillis() - lastPreviewAt > 800) {
+                  lastPreviewAt = System.currentTimeMillis()
+                  i420ToBitmap(frame.buffer, frame.width, frame.height)?.let { _preview.value = it }
+                }
+              }
               n++
               if (n % 15 == 0L) _status.update { it.copy(frames = n) }
             }
@@ -232,6 +255,25 @@ class GlassesManager(private val app: Context) {
     lastFrameAt = 0
     _status.update { it.copy(sessionState = "idle", streamState = StreamState.STOPPED.name) }
   }
+
+  private fun i420ToBitmap(src: ByteBuffer, w: Int, h: Int): android.graphics.Bitmap? =
+    runCatching {
+      val ySize = w * h
+      val cSize = ySize / 4
+      val i420 = ByteArray(ySize + 2 * cSize)
+      src.duplicate().get(i420)
+      val nv21 = ByteArray(i420.size)
+      System.arraycopy(i420, 0, nv21, 0, ySize)
+      for (i in 0 until cSize) {
+        nv21[ySize + 2 * i] = i420[ySize + cSize + i] // V
+        nv21[ySize + 2 * i + 1] = i420[ySize + i] // U
+      }
+      val out = java.io.ByteArrayOutputStream()
+      android.graphics.YuvImage(nv21, android.graphics.ImageFormat.NV21, w, h, null).compressToJpeg(android.graphics.Rect(0, 0, w, h), 70, out)
+      android.graphics.BitmapFactory.decodeByteArray(out.toByteArray(), 0, out.size())
+    }.getOrNull()
+
+  fun clearError() = _status.update { it.copy(lastError = null) }
 
   private fun setError(msg: String) {
     Log.w(TAG, msg)

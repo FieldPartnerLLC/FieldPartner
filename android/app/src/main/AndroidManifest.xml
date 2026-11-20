@@ -25,6 +25,8 @@
 
   <!-- SpeechRecognizer service lookup on Android 11+ -->
   <queries>
+    <!-- Meta AI app: setup checks it is installed and opens it. -->
+    <package android:name="com.facebook.stella" />
     <intent>
       <action android:name="android.speech.RecognitionService" />
     </intent>

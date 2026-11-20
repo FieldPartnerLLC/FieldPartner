@@ -10,6 +10,7 @@ import { supervisorRoutes } from "./routes/supervisor.js";
 import { adminRoutes } from "./routes/admin.js";
 import { agentRoutes } from "./routes/agent.js";
 import { publicRoutes } from "./routes/public.js";
+import { onboardingRoutes } from "./routes/onboarding.js";
 import { dbKind } from "./db.js";
 import { features } from "./config.js";
 import { storageKind } from "./lib/storage.js";
@@ -65,5 +66,6 @@ export async function buildServer(opts: { logger?: boolean } = {}): Promise<Fast
   await app.register(adminRoutes);
   await app.register(agentRoutes);
   await app.register(publicRoutes);
+  await app.register(onboardingRoutes);
   return app;
 }

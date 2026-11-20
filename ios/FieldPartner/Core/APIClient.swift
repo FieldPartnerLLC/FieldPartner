@@ -102,7 +102,7 @@ final class APIClient: @unchecked Sendable {
     guard let http = response as? HTTPURLResponse else { throw APIError.badResponse }
     if http.statusCode >= 400 {
       let err = try? decoder.decode(APIErrorBody.self, from: data)
-      if http.statusCode == 401 { throw APIError.notSignedIn }
+      if http.statusCode == 401 && authenticated { throw APIError.notSignedIn }
       throw APIError.server(status: http.statusCode, code: err?.error ?? "error", message: err?.message ?? "Server error \(http.statusCode).")
     }
     if T.self == Empty.self { return Empty() as! T }
@@ -131,6 +131,18 @@ final class APIClient: @unchecked Sendable {
   func login(email: String, password: String) async throws -> LoginResponse {
     struct Body: Encodable { let email: String; let password: String }
     return try await request("POST", "/auth/login", body: Body(email: email, password: password), authenticated: false)
+  }
+
+  /// Who an invite code is for. Accepts the code with or without the dash, any case.
+  func inviteInfo(code: String) async throws -> InviteInfo {
+    let clean = code.trimmingCharacters(in: .whitespaces).replacingOccurrences(of: " ", with: "")
+    return try await request("GET", "/auth/invite/\(clean)", retries: 1, authenticated: false)
+  }
+
+  /// Creates the technician's account from the invite and signs them in.
+  func acceptInvite(code: String, password: String) async throws -> LoginResponse {
+    struct Body: Encodable { let code: String; let password: String }
+    return try await request("POST", "/auth/accept-invite", body: Body(code: code.trimmingCharacters(in: .whitespaces), password: password), retries: 0, authenticated: false)
   }
 
   func me() async throws -> MeResponse { try await request("GET", "/me") }

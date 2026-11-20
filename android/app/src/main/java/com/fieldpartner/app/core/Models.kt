@@ -42,6 +42,8 @@ data class CompanyInfo(
   val address: String? = null,
 )
 
+@Serializable data class InviteInfo(val companyName: String, val name: String, val email: String, val role: String)
+
 @Serializable data class LoginResponse(val token: String, val user: UserInfo, val company: CompanyInfo? = null)
 
 @Serializable

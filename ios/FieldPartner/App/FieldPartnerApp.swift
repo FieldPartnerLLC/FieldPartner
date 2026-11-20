@@ -23,7 +23,7 @@ struct FieldPartnerApp: App {
         .onOpenURL { url in
           Task { await GlassesManager.handle(url: url) }
         }
-        .tint(.orange)
+        .tint(Color(red: 0.078, green: 0.227, blue: 0.353))  // FieldPartner navy #143A5A, same as Android and the portal
         #if DEBUG && targetEnvironment(simulator)
         // The iOS Simulator has no glasses and no camera: play the demo video as the glasses feed.
         .task { model.glasses.enableSimulatedGlasses(demoVideo: true) }
@@ -37,7 +37,9 @@ struct RootView: View {
 
   var body: some View {
     Group {
-      if model.signedIn {
+      if model.signedIn && model.needsSetup {
+        SetupView()
+      } else if model.signedIn {
         JobsView()
       } else {
         LoginView()

@@ -81,7 +81,7 @@ struct VisitView: View {
         Button { showConsent = true } label: {
           Label("Get customer consent", systemImage: "signature")
             .frame(maxWidth: .infinity).padding()
-            .background(Color.orange).foregroundStyle(.black).font(.headline)
+            .background(Color(red: 0.604, green: 0.357, blue: 0.0)).foregroundStyle(.white).font(.headline)
         }
       }
       controls
@@ -131,7 +131,7 @@ struct VisitView: View {
         Label("PAUSED", systemImage: "pause.circle.fill").foregroundStyle(.yellow).font(.caption.bold())
       }
       chip(phaseText, .gray)
-      chip(aiText, live.assistant == .speaking || live.assistant == .listening ? .orange : .gray)
+      chip(aiText, live.assistant == .speaking || live.assistant == .listening ? .accentColor : .gray)
       if live.expertPresent || controller.escalation == "joined" { chip("Expert live", .green) }
       else if controller.escalation == "requested" { chip("Paging expert", .orange) }
       else if controller.escalation == "unanswered" { chip("No expert answered", .red) }
@@ -176,7 +176,7 @@ struct VisitView: View {
 
   private var controls: some View {
     HStack(spacing: 10) {
-      bigButton("Ask", "waveform", .orange) { controller.talkButton() }
+      bigButton("Talk", "mic.fill", .accentColor) { controller.talkButton() }
       bigButton(controller.cameraPaused ? "Camera on" : "Pause cam", controller.cameraPaused ? "video" : "video.slash", .gray) {
         Task { await controller.setCameraPaused(!controller.cameraPaused) }
       }

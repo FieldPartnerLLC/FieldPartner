@@ -66,6 +66,13 @@ class AppSettings(context: Context) {
     _values.value = v.copy(apiBaseUrl = v.apiBaseUrl.trim(), wakePhraseOverride = v.wakePhraseOverride.trim())
   }
 
+  /** Id of the user who finished first-run setup on this phone. A different user sees setup again. */
+  var setupDoneFor: String?
+    get() = p.getString("setupDoneFor", null)
+    set(value) {
+      p.edit().apply { if (value == null) remove("setupDoneFor") else putString("setupDoneFor", value) }.apply()
+    }
+
   var token: String?
     get() = p.getString("token", null)
     set(value) {

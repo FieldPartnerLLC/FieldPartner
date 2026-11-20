@@ -7,13 +7,14 @@ struct LoginView: View {
   @State private var email = ""
   @State private var password = ""
   @State private var busy = false
+  @State private var showJoin = false
 
   var body: some View {
     NavigationStack {
       Form {
         Section {
           VStack(alignment: .leading, spacing: 6) {
-            Text("FieldPartner").font(.largeTitle.bold())
+            Text("FieldPartner").font(.largeTitle.bold()).foregroundStyle(Color.accentColor)
             Text("Your AI partner on every job.").foregroundStyle(.secondary)
           }
           .padding(.vertical, 8)
@@ -49,7 +50,16 @@ struct LoginView: View {
           }
           .disabled(busy || email.isEmpty || password.isEmpty || server.isEmpty)
         }
+        Section("New technician?") {
+          Button {
+            showJoin = true
+          } label: {
+            Label("I have an invite code", systemImage: "key")
+          }
+          Text("No code? Your manager creates one on the FieldPartner portal under Team.").font(.footnote).foregroundStyle(.secondary)
+        }
       }
+      .sheet(isPresented: $showJoin) { JoinView() }
     }
   }
 }
@@ -274,6 +284,15 @@ struct SettingsView: View {
           Button("Sign out", role: .destructive) {
             model.logout()
             dismiss()
+          }
+        }
+        Section("Setup") {
+          Button {
+            AppSettings.shared.setupDoneFor = ""
+            model.objectWillChange.send()
+            dismiss()
+          } label: {
+            Label("Run setup again (permissions, glasses, video test)", systemImage: "slider.horizontal.3")
           }
         }
         Section("Glasses") {
