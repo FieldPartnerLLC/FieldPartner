@@ -7,6 +7,7 @@ import { authRoutes } from "./routes/auth.js";
 import { jobRoutes } from "./routes/jobs.js";
 import { visitRoutes } from "./routes/visits.js";
 import { lessonRoutes } from "./routes/lessons.js";
+import { usageRoutes } from "./routes/usage.js";
 import { supervisorRoutes } from "./routes/supervisor.js";
 import { adminRoutes } from "./routes/admin.js";
 import { agentRoutes } from "./routes/agent.js";
@@ -67,6 +68,7 @@ export async function buildServer(opts: { logger?: boolean } = {}): Promise<Fast
   await app.register(jobRoutes);
   await app.register(visitRoutes);
   await app.register(lessonRoutes);
+  await app.register(usageRoutes);
   await app.register(supervisorRoutes);
   await app.register(adminRoutes);
   await app.register(agentRoutes);

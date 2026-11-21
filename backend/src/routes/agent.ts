@@ -1,8 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { requireAgent } from "../auth.js";
-import { config, features } from "../config.js";
-import { askClaude, type ClaudeContent } from "../lib/claude.js";
+import { features } from "../config.js";
+import { callClaude, extractJson, type ClaudeContent } from "../lib/claude.js";
+import { applyBudget, consultRoute, readLabelRoute, type Route } from "../lib/router.js";
+import { overBudget, recordUsage } from "../lib/usage.js";
 import { consultSystemPrompt, markLessonsUsed, relevantLessons, renderLessons, tradeSkill } from "../lib/skills.js";
 import { one, q } from "../db.js";
 import { notFound } from "../errors.js";
@@ -30,12 +32,43 @@ export async function agentRoutes(app: FastifyInstance) {
         question: z.string().min(1).max(2000),
         imageJpegBase64: z.string().max(3_000_000).optional(),
         recentTranscript: z.array(z.string().max(1000)).max(40).optional(),
+        /** "consult" = diagnosis advice; "read" = read a nameplate, label or display from the photo. */
+        kind: z.enum(["consult", "read"]).default("consult"),
       })
       .parse(req.body);
     const visit = await loadVisit(id);
     if (!features.claude()) {
       return { answer: null, reason: "claude_not_configured" };
     }
+    const scope = { companyId: visit.company_id, visitId: visit.id };
+    // Same rule as the live camera: only before consent is signed, or with video consent.
+    const imageAllowed = Boolean(body.imageJpegBase64) && (visit.consent_choice == null || visit.consent_choice === "video_audio");
+    const image: ClaudeContent[] = imageAllowed
+      ? [{ type: "image", source: { type: "base64", media_type: "image/jpeg", data: body.imageJpegBase64! } }]
+      : [];
+
+    if (body.kind === "read") {
+      if (!imageAllowed) return { answer: "I need the camera on to read that.", tier: "none" };
+      const route = readLabelRoute();
+      try {
+        const reply = await callClaude({
+          tier: route.tier,
+          system: READ_PROMPT,
+          content: [...image, { type: "text", text: `What to read: ${body.question}` }],
+          maxTokens: 250,
+          temperature: 0,
+          timeoutMs: 20_000,
+          scope,
+          task: "read_label",
+        });
+        await recordEvents(visit, [{ type: "consult", data: { kind: "read", question: body.question, answer: reply.text, tier: route.tier, model: reply.model } }], "ai");
+        return { answer: reply.text, tier: route.tier };
+      } catch (e) {
+        req.log.warn({ err: e }, "read failed");
+        return { answer: null, reason: "claude_error" };
+      }
+    }
+
     const ctx = await agentContext(visit);
     const equipment = (ctx.job.equipment ?? {}) as Record<string, any>;
     const lastEquip = [...ctx.notes].reverse().find((n: any) => n.brand || n.model) as any;
@@ -63,22 +96,98 @@ export async function agentRoutes(app: FastifyInstance) {
       lessons: renderLessons(lessons),
       visitFacts: facts,
     });
-    const content: ClaudeContent[] = [];
-    // Same rule as the live camera: only before consent is signed, or with video consent.
-    if (body.imageJpegBase64 && (visit.consent_choice == null || visit.consent_choice === "video_audio")) {
-      content.push({ type: "image", source: { type: "base64", media_type: "image/jpeg", data: body.imageJpegBase64 } });
-    }
-    content.push({ type: "text", text: `Technician's question: ${body.question}` });
-    let answer: string;
+    const content: ClaudeContent[] = [...image, { type: "text", text: `Technician's question: ${body.question}` }];
+
+    // Fast model first for routine questions. It grades itself; unsure answers go to the expert.
+    let route: Route = applyBudget(consultRoute(body.question, body.recentTranscript), await overBudget(visit.company_id));
+    let answer: string | null = null;
+    let usedModel = "";
     try {
-      answer = await askClaude({ system, content, maxTokens: 400, temperature: 0.2, timeoutMs: 30_000 });
+      if (route.tier === "fast") {
+        const fast = await callClaude({
+          tier: "fast",
+          system: `${system}\n\n${SELF_CHECK}`,
+          content,
+          maxTokens: 300,
+          temperature: 0.2,
+          timeoutMs: 15_000,
+          scope,
+          task: "consult_fast",
+        });
+        const graded = extractJson(fast.text) as { answer?: unknown; confident?: unknown } | null;
+        const text = typeof graded?.answer === "string" ? graded.answer.trim() : "";
+        if (text && graded?.confident === true) {
+          answer = text;
+          usedModel = fast.model;
+        } else if (!(await overBudget(visit.company_id))) {
+          route = { tier: "expert", reason: "fast model was not confident" };
+        } else if (text) {
+          answer = text;
+          usedModel = fast.model;
+        }
+      }
+      if (!answer) {
+        const expert = await callClaude({
+          tier: "expert",
+          system,
+          content,
+          maxTokens: 400,
+          temperature: 0.2,
+          timeoutMs: 30_000,
+          scope,
+          task: "consult_expert",
+        });
+        answer = expert.text;
+        usedModel = expert.model;
+        route = { ...route, tier: "expert" };
+      }
     } catch (e) {
       req.log.warn({ err: e }, "consult failed");
       return { answer: null, reason: "claude_error" };
     }
     await markLessonsUsed(lessons.map((l) => l.id)).catch(() => {});
-    await recordEvents(visit, [{ type: "consult", data: { question: body.question, answer, lessons: lessons.map((l) => l.id), model: config().CLAUDE_MODEL } }], "ai");
-    return { answer, lessonsUsed: lessons.length };
+    await recordEvents(
+      visit,
+      [{ type: "consult", data: { question: body.question, answer, lessons: lessons.map((l) => l.id), tier: route.tier, why: route.reason, model: usedModel } }],
+      "ai",
+    );
+    return { answer, lessonsUsed: lessons.length, tier: route.tier, why: route.reason };
+  });
+
+  /**
+   * The agent reports what Gemini used during the visit (live voice and camera, hazard watcher)
+   * so the cost page shows the whole bill, not only Claude.
+   */
+  app.post("/agent/visits/:id/usage", { preHandler: requireAgent }, async (req) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const visit = await loadVisit(id);
+    const n = z.number().int().min(0).max(100_000_000).default(0);
+    const body = z
+      .object({
+        items: z
+          .array(
+            z.object({
+              model: z.string().min(1).max(80),
+              task: z.string().min(1).max(40),
+              inputTokens: n,
+              cachedTokens: n,
+              audioInTokens: n,
+              imageInTokens: n,
+              outputTokens: n,
+              audioOutTokens: n,
+            }),
+          )
+          .max(20),
+      })
+      .parse(req.body);
+    let usd = 0;
+    for (const it of body.items) {
+      usd += await recordUsage(
+        { companyId: visit.company_id, visitId: visit.id },
+        { provider: "google", model: it.model, task: it.task, usage: it },
+      );
+    }
+    return { recorded: body.items.length, usd };
   });
 
   app.post("/agent/visits/:id/events", { preHandler: requireAgent }, async (req) => {
@@ -144,3 +253,16 @@ export async function agentContext(visit: Awaited<ReturnType<typeof loadVisit>>)
     notes: notes.map((n) => ({ ts: n.ts, actor: n.actor, ...n.data })),
   };
 }
+
+const SELF_CHECK = `Before answering, judge yourself. Reply with only this JSON:
+{"answer": "<your spoken answer>", "confident": true or false}
+Set "confident" to false if the facts or photo do not clearly support one answer, if the fix involves
+gas, high voltage, refrigerant handling or anything that could injure someone, or if a wrong answer
+could damage equipment. A senior model will answer instead. Being honest here is more important than answering.`;
+
+const READ_PROMPT = `You read equipment nameplates, labels, data plates, displays and error codes from one photo.
+Reply in at most 3 short spoken sentences, plain words, no markdown.
+Give exactly what is printed: brand, model number, serial number, manufacture date or year code, voltage,
+amps, refrigerant and charge, or the code on the display, whichever are visible and asked for.
+Spell model and serial numbers character by character groups as printed. If something is blurry, cut off or
+glared, say "not readable" for it and say how to fix the shot (closer, angle, light). Never guess a character.`;

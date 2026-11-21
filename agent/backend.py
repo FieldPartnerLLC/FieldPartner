@@ -68,14 +68,24 @@ class BackendClient:
     async def context(self) -> dict[str, Any]:
         return await self._request("GET", f"/agent/visits/{self.visit_id}/context", attempts=5)
 
-    async def consult(self, question: str, image_jpeg_b64: str | None = None, recent: list[str] | None = None) -> dict[str, Any]:
-        """Asks Claude (through the backend) as the company's senior expert. One attempt; the caller falls back."""
-        body: dict[str, Any] = {"question": question[:2000]}
+    async def consult(
+        self, question: str, image_jpeg_b64: str | None = None, recent: list[str] | None = None, *, kind: str = "consult"
+    ) -> dict[str, Any]:
+        """
+        Asks Claude through the backend. kind="consult" is diagnosis (the backend routes it to the
+        fast or the senior model); kind="read" reads a nameplate or display from the photo.
+        One attempt; the caller falls back.
+        """
+        body: dict[str, Any] = {"question": question[:2000], "kind": kind}
         if image_jpeg_b64:
             body["imageJpegBase64"] = image_jpeg_b64
         if recent:
             body["recentTranscript"] = [r[:1000] for r in recent[-12:]]
         return await self._request("POST", f"/agent/visits/{self.visit_id}/consult", body, attempts=1, timeout=40)
+
+    async def usage(self, items: list[dict[str, Any]]) -> dict[str, Any]:
+        """Reports Gemini token use for this visit (live session and hazard watcher)."""
+        return await self._request("POST", f"/agent/visits/{self.visit_id}/usage", {"items": items[:20]}, attempts=2)
 
     async def escalate(self, reason: str) -> dict[str, Any]:
         return await self._request("POST", f"/agent/visits/{self.visit_id}/escalate", {"reason": reason})

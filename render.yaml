@@ -43,8 +43,12 @@ services:
         sync: false
       - key: ANTHROPIC_API_KEY # Claude: senior expert answers, reports, lessons (console.anthropic.com)
         sync: false
-      - key: CLAUDE_MODEL
+      - key: CLAUDE_MODEL # senior model: safety questions, failed fixes, hard visits ($2/$10 per 1M tokens)
         value: claude-sonnet-5-5
+      - key: CLAUDE_FAST_MODEL # fast model: routine questions, nameplates, routine reports ($0.10/$0.50)
+        value: claude-haiku-5-5
+      - key: AI_MONTHLY_BUDGET_USD # per company per month; past it everything uses the fast model. 0 = no cap
+        value: "100"
       - key: SIGNUP_ENABLED # set to false once your companies are created
         value: "true"
       - key: TWILIO_ACCOUNT_SID
@@ -68,6 +72,17 @@ services:
         value: thread
       - key: AGENT_IDLE_PROCESSES
         value: "1"
+      # Gemini Live cost controls (it re-bills the whole session context on every turn)
+      - key: GEMINI_MEDIA_RESOLUTION # low camera detail; small print goes to read_label instead
+        value: low
+      - key: GEMINI_VIDEO_FPS # frames per second, only while the assistant is listening
+        value: "0.5"
+      - key: GEMINI_CONTEXT_TRIGGER_TOKENS # compress the session when it passes this
+        value: "12000"
+      - key: GEMINI_CONTEXT_TARGET_TOKENS # down to this
+        value: "5000"
+      - key: SAFETY_STATIC_RECHECK_SECONDS # hazard check on an unchanged view at most this often
+        value: "30"
       - key: BACKEND_URL # private network address of the API, no public hop
         fromService: { type: web, name: fieldpartner-api, property: hostport }
       - key: AGENT_SERVICE_TOKEN

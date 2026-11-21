@@ -37,7 +37,7 @@ from livekit.plugins import google
 from PIL import Image
 
 from backend import BackendClient
-from policy import AssistantGate, GatedSampler, SafetyDeduper, WatcherBudget
+from policy import AssistantGate, GatedSampler, SafetyDeduper, SceneGate, UsageMeter, WatcherBudget
 from prompts import build_instructions, build_safety_prompt, clean_transcript, parse_safety
 
 load_dotenv()
@@ -65,6 +65,7 @@ class VisitState:
     session: AgentSession | None = None
     pending_hints: list[dict[str, Any]] = field(default_factory=list)
     recent: deque[str] = field(default_factory=lambda: deque(maxlen=20))
+    meter: UsageMeter = field(default_factory=UsageMeter)
 
     async def to_phone(self, payload: dict[str, Any]) -> None:
         try:
@@ -82,6 +83,27 @@ def jpeg_from_frame(frame: rtc.VideoFrame, max_side: int = 1024, quality: int = 
     buf = io.BytesIO()
     img.save(buf, "JPEG", quality=quality)
     return buf.getvalue()
+
+
+def thumb_from_frame(frame: rtc.VideoFrame, side: int = 16) -> bytes:
+    """Tiny grayscale fingerprint of the scene, for skipping hazard checks on an unchanged view."""
+    rgba = frame.convert(rtc.VideoBufferType.RGBA)
+    img = Image.frombuffer("RGBA", (rgba.width, rgba.height), bytes(rgba.data)).convert("L")
+    return img.resize((side, side)).tobytes()
+
+
+def env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, default))
+    except ValueError:
+        return default
+
+
+def env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, default))
+    except ValueError:
+        return default
 
 
 # ---------------------------------------------------------------- tools
@@ -158,7 +180,7 @@ async def ask_senior_expert(ctx: RunContext[VisitState], question: str) -> str:
     fresh = st.frames.frame is not None and time.monotonic() - st.frames.arrived_at < 10
     if fresh and st.gate.camera_allowed:
         try:
-            jpeg = await asyncio.to_thread(jpeg_from_frame, st.frames.frame, 1280, 80)
+            jpeg = await asyncio.to_thread(jpeg_from_frame, st.frames.frame, 1024, 80)
             image_b64 = base64.b64encode(jpeg).decode()
         except Exception:
             logger.exception("could not encode frame for consult")
@@ -180,6 +202,26 @@ async def ask_senior_expert(ctx: RunContext[VisitState], question: str) -> str:
 
 
 @function_tool
+async def read_label(ctx: RunContext[VisitState], what: str = "brand, model, serial and year") -> str:
+    """Read a nameplate, data plate, label, serial number or display code from a sharp close-up photo.
+    Ask the technician to hold the camera close and steady first. `what` says which fields are needed."""
+    st = ctx.userdata
+    fresh = st.frames.frame is not None and time.monotonic() - st.frames.arrived_at < 5
+    if not (fresh and st.gate.camera_allowed):
+        return "The camera is off or paused, so nothing can be read. Ask the technician to read it out instead."
+    try:
+        jpeg = await asyncio.to_thread(jpeg_from_frame, st.frames.frame, 1568, 88)
+        res = await st.backend.consult(what, base64.b64encode(jpeg).decode(), kind="read")
+    except Exception as e:
+        logger.warning("read_label failed: %s", e)
+        res = {}
+    answer = (res or {}).get("answer")
+    if not answer:
+        return "Could not read it right now. Ask the technician to read the label out loud."
+    return "The label reads as follows. Repeat the key fields back, then save them with save_equipment.\n\n" + answer
+
+
+@function_tool
 async def draft_estimate(
     ctx: RunContext[VisitState], problem: str, cause: str, recommended_repair: str, parts: str = ""
 ) -> str:
@@ -191,7 +233,7 @@ async def draft_estimate(
     return "The draft is on the technician's screen. Say only that it's on the screen."
 
 
-TOOLS = [save_reading, save_equipment, add_note, flag_safety_stop, call_supervisor, ask_senior_expert, draft_estimate]
+TOOLS = [save_reading, save_equipment, read_label, add_note, flag_safety_stop, call_supervisor, ask_senior_expert, draft_estimate]
 
 
 # ---------------------------------------------------------------- safety watcher
@@ -202,7 +244,8 @@ async def safety_watcher(st: VisitState, stop: asyncio.Event) -> None:
         return
     client = genai.Client()
     model = os.environ.get("SAFETY_MODEL", "gemini-3.5-flash-lite")
-    budget = WatcherBudget(interval_seconds=float(os.environ.get("SAFETY_INTERVAL_SECONDS", "5")))
+    budget = WatcherBudget(interval_seconds=env_float("SAFETY_INTERVAL_SECONDS", 5.0))
+    scene = SceneGate(static_recheck_seconds=env_float("SAFETY_STATIC_RECHECK_SECONDS", 30.0))
     dedupe = SafetyDeduper()
     prompt = build_safety_prompt(st.context.get("trade"))
     consecutive_errors = 0
@@ -214,16 +257,31 @@ async def safety_watcher(st: VisitState, stop: asyncio.Event) -> None:
         if not budget.due(st.frames.arrived_at, st.gate.camera_allowed):
             continue
         try:
+            if not scene.should_check(await asyncio.to_thread(thumb_from_frame, frame)):
+                continue
+        except Exception:
+            logger.exception("scene fingerprint failed")
+        try:
             jpeg = await asyncio.to_thread(jpeg_from_frame, frame, 768, 70)
             resp = await asyncio.wait_for(
                 client.aio.models.generate_content(
                     model=model,
                     contents=[genai_types.Part.from_bytes(data=jpeg, mime_type="image/jpeg"), prompt],
-                    config=genai_types.GenerateContentConfig(temperature=0.0, max_output_tokens=40),
+                    config=genai_types.GenerateContentConfig(
+                        temperature=0.0, max_output_tokens=40, media_resolution=genai_types.MediaResolution.MEDIA_RESOLUTION_LOW
+                    ),
                 ),
                 timeout=8,
             )
             consecutive_errors = 0
+            um = getattr(resp, "usage_metadata", None)
+            if um is not None:
+                st.meter.add(
+                    model,
+                    "safety_watcher",
+                    input_tokens=um.prompt_token_count or 0,
+                    output_tokens=(um.candidates_token_count or 0) + (getattr(um, "thoughts_token_count", 0) or 0),
+                )
         except Exception as e:
             consecutive_errors += 1
             if consecutive_errors in (1, 10):
@@ -300,16 +358,31 @@ async def entrypoint(ctx: JobContext) -> None:
             start_video_reader(pub.track)
 
     # ---- the realtime model
+    # Cost controls. Gemini Live bills the whole session context again on every turn, so the
+    # context is kept small: it is compressed to TARGET tokens whenever it passes TRIGGER, the
+    # camera goes in at low resolution (read_label handles small print), and frames are sampled
+    # at GEMINI_VIDEO_FPS only while the assistant is active.
+    live_model = os.environ.get("GEMINI_LIVE_MODEL", "gemini-3.1-flash-live-preview")
+    resolution = {
+        "low": genai_types.MediaResolution.MEDIA_RESOLUTION_LOW,
+        "medium": genai_types.MediaResolution.MEDIA_RESOLUTION_MEDIUM,
+        "high": genai_types.MediaResolution.MEDIA_RESOLUTION_HIGH,
+    }.get(os.environ.get("GEMINI_MEDIA_RESOLUTION", "low").lower(), genai_types.MediaResolution.MEDIA_RESOLUTION_LOW)
     model = google.realtime.RealtimeModel(
-        model=os.environ.get("GEMINI_LIVE_MODEL", "gemini-3.1-flash-live-preview"),
+        model=live_model,
         voice=os.environ.get("GEMINI_VOICE", "Puck"),
         temperature=0.4,
+        max_output_tokens=env_int("GEMINI_MAX_OUTPUT_TOKENS", 1500),  # audio: 25 tokens a second, so 60 s of speech
+        media_resolution=resolution,
         input_audio_transcription=genai_types.AudioTranscriptionConfig(),
         output_audio_transcription=genai_types.AudioTranscriptionConfig(),
-        context_window_compression=genai_types.ContextWindowCompressionConfig(sliding_window=genai_types.SlidingWindow()),
+        context_window_compression=genai_types.ContextWindowCompressionConfig(
+            trigger_tokens=env_int("GEMINI_CONTEXT_TRIGGER_TOKENS", 12000),
+            sliding_window=genai_types.SlidingWindow(target_tokens=env_int("GEMINI_CONTEXT_TARGET_TOKENS", 5000)),
+        ),
         session_resumption=genai_types.SessionResumptionConfig(),
     )
-    sampler = GatedSampler(gate)
+    sampler = GatedSampler(gate, fps=env_float("GEMINI_VIDEO_FPS", 0.5))
     session: AgentSession = AgentSession(llm=model, userdata=st, video_sampler=sampler)
     st.session = session
 
@@ -322,6 +395,24 @@ async def entrypoint(ctx: JobContext) -> None:
             gate.deactivate()
             session.input.set_audio_enabled(False)
         await st.to_phone({"type": "assistant_state", "state": "listening" if on else "idle", "reason": reason})
+
+    @session.on("metrics_collected")
+    def _metrics(ev) -> None:  # noqa: ANN001
+        m = getattr(ev, "metrics", None)
+        if m is None or getattr(m, "type", "") != "realtime_model_metrics":
+            return
+        inp = getattr(m, "input_token_details", None)
+        out = getattr(m, "output_token_details", None)
+        st.meter.add(
+            live_model,
+            "live",
+            input_tokens=m.input_tokens,
+            cached_tokens=getattr(inp, "cached_tokens", 0) or 0,
+            audio_in_tokens=getattr(inp, "audio_tokens", 0) or 0,
+            image_in_tokens=getattr(inp, "image_tokens", 0) or 0,
+            output_tokens=m.output_tokens,
+            audio_out_tokens=getattr(out, "audio_tokens", 0) or 0,
+        )
 
     @session.on("agent_state_changed")
     def _agent_state(ev) -> None:
@@ -446,12 +537,32 @@ async def entrypoint(ctx: JobContext) -> None:
             if gate.should_close():
                 await set_active(False, "follow_up_window_closed")
 
-    tasks = [asyncio.create_task(follow_up_closer()), asyncio.create_task(safety_watcher(st, stop))]
+    async def send_usage() -> None:
+        items = st.meter.take()
+        if not items:
+            return
+        try:
+            await backend.usage(items)
+        except Exception as e:
+            st.meter.restore(items)
+            logger.warning("usage report failed: %s", e)
+
+    async def usage_reporter() -> None:
+        while not stop.is_set():
+            await asyncio.sleep(60)
+            await send_usage()
+
+    tasks = [
+        asyncio.create_task(follow_up_closer()),
+        asyncio.create_task(safety_watcher(st, stop)),
+        asyncio.create_task(usage_reporter()),
+    ]
 
     async def shutdown() -> None:
         stop.set()
         for t in tasks:
             t.cancel()
+        await send_usage()
         await backend.close()
 
     ctx.add_shutdown_callback(shutdown)

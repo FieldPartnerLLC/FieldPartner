@@ -1,7 +1,9 @@
 import { GoogleGenAI } from "@google/genai";
 import PDFDocument from "pdfkit";
 import { config, features } from "../config.js";
-import { askClaude, extractJson } from "./claude.js";
+import { callClaude, extractJson } from "./claude.js";
+import { applyBudget, reportRoute } from "./router.js";
+import { overBudget, recordUsage, type UsageScope } from "./usage.js";
 import { tradeSkill } from "./skills.js";
 
 export interface VisitReport {
@@ -154,23 +156,31 @@ export function normalizeReport(raw: any, fallback: VisitReport): VisitReport {
 }
 
 /**
- * Drafts the report. Claude writes it when ANTHROPIC_API_KEY is set (it reads the trade skill so
- * terms and checks are right); Gemini is the fallback; with neither, a facts-only draft.
+ * Drafts the report. Routine visits go to the fast Claude model, visits with a safety stop,
+ * supervisor, dispute or a long transcript go to the expert model. Gemini Flash-Lite is the
+ * backup; with neither key, a facts-only draft.
  */
-export async function generateReport(input: ReportInputs, tradeProfile?: Record<string, any> | null): Promise<VisitReport> {
+export async function generateReport(
+  input: ReportInputs,
+  tradeProfile?: Record<string, any> | null,
+  scope: UsageScope = {},
+): Promise<VisitReport> {
   const fallback = emptyReport(input);
   const record = renderVisitRecord(input);
   if (features.claude()) {
+    const route = applyBudget(reportRoute(input), await overBudget(scope.companyId));
     try {
-      const text = await askClaude({
-        model: config().CLAUDE_REPORT_MODEL,
+      const reply = await callClaude({
+        tier: route.tier,
         system: `${REPORT_PROMPT}\nReturn only the JSON object, no other text.\n\nTrade reference (for terms and checks only, never as facts about this visit):\n${tradeSkill(input.trade, tradeProfile)}`,
         content: `VISIT RECORD:\n${record}`,
-        maxTokens: 2000,
+        maxTokens: 1500,
         temperature: 0.1,
         timeoutMs: 90_000,
+        scope,
+        task: "report",
       });
-      const parsed = extractJson(text);
+      const parsed = extractJson(reply.text);
       if (parsed && typeof parsed === "object") return normalizeReport(parsed, fallback);
     } catch (e) {
       console.warn("[report] Claude draft failed, trying Gemini:", (e as Error).message);
@@ -178,10 +188,18 @@ export async function generateReport(input: ReportInputs, tradeProfile?: Record<
   }
   if (!features.gemini()) return fallback;
   const ai = new GoogleGenAI({ apiKey: config().GOOGLE_API_KEY });
+  const model = config().REPORT_MODEL;
   const res = await ai.models.generateContent({
-    model: config().REPORT_MODEL,
+    model,
     contents: [{ role: "user", parts: [{ text: `${REPORT_PROMPT}\n\nVISIT RECORD:\n${record}` }] }],
-    config: { responseMimeType: "application/json", temperature: 0.2 },
+    config: { responseMimeType: "application/json", temperature: 0.2, maxOutputTokens: 2000 },
+  });
+  const um: any = (res as any).usageMetadata ?? {};
+  await recordUsage(scope, {
+    provider: "google",
+    model,
+    task: "report",
+    usage: { inputTokens: um.promptTokenCount ?? 0, outputTokens: (um.candidatesTokenCount ?? 0) + (um.thoughtsTokenCount ?? 0) },
   });
   let parsed: unknown = null;
   try {

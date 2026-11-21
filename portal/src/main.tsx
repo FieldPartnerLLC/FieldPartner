@@ -176,6 +176,7 @@ function Shell({ children }: { children: React.ReactNode }) {
           <Link to="/review">Review</Link>
           {user.role !== "tech" && <Link to="/lessons">Lessons</Link>}
           {(user.role === "admin" || user.role === "owner") && <Link to="/team">Team</Link>}
+          {(user.role === "admin" || user.role === "owner") && <Link to="/costs">AI costs</Link>}
         </nav>
         <span className="muted">{user.name}</span>
         <button
@@ -507,6 +508,75 @@ const tradeName = (id: string) => TRADES.find(([t]) => t === id)?.[1] ?? id;
  * Knowledge base review. Claude proposes lessons from approved visits; experts approve, correct or
  * reject them, and can write their own. Only approved lessons are ever used by the AI.
  */
+const TASK_NAMES: Record<string, string> = {
+  live: "Live voice and camera (Gemini)",
+  safety_watcher: "Hazard watcher (Gemini)",
+  consult_fast: "Expert questions, fast model",
+  consult_expert: "Expert questions, senior model",
+  read_label: "Reading nameplates",
+  report: "Report drafting",
+  lessons: "Lesson writing",
+};
+
+function usd(n: number): string {
+  return n < 0.01 && n > 0 ? `$${n.toFixed(4)}` : `$${n.toFixed(2)}`;
+}
+
+function Costs() {
+  const [data, setData] = useState<any>(null);
+  const [msg, setMsg] = useState("");
+  useEffect(() => {
+    api("/usage").then(setData).catch((e) => setMsg(e.message));
+  }, []);
+  return (
+    <Shell>
+      <h2>AI costs this month</h2>
+      {msg && <p className="error">{msg}</p>}
+      {data && (
+        <>
+          <div className="cards">
+            <div className="card"><div className="muted">Month to date</div><div className="big">{usd(data.monthToDateUsd)}</div></div>
+            <div className="card"><div className="muted">Visits</div><div className="big">{data.visits}</div></div>
+            <div className="card"><div className="muted">Average per visit</div><div className="big">{usd(data.costPerVisitUsd)}</div></div>
+            <div className="card"><div className="muted">Monthly budget</div><div className="big">{data.budgetUsd ? usd(data.budgetUsd) : "None set"}</div></div>
+          </div>
+          <p className="muted">
+            Routine questions, nameplates, routine reports and lessons use the fast model. Safety questions, failed fixes and
+            visits with a safety stop or supervisor use the senior model. Past the monthly budget everything uses the fast model.
+          </p>
+          <h3>By job</h3>
+          <table>
+            <thead><tr><th>What</th><th>Calls</th><th>Cost</th></tr></thead>
+            <tbody>
+              {data.byTask.map((t: any) => (
+                <tr key={t.task}><td>{TASK_NAMES[t.task] ?? t.task}</td><td>{t.calls}</td><td>{usd(t.usd)}</td></tr>
+              ))}
+            </tbody>
+          </table>
+          <h3>By model</h3>
+          <table>
+            <thead><tr><th>Model</th><th>Calls</th><th>Cost</th></tr></thead>
+            <tbody>
+              {data.byModel.map((m: any) => (
+                <tr key={m.model}><td>{m.model}</td><td>{m.calls}</td><td>{usd(m.usd)}</td></tr>
+              ))}
+            </tbody>
+          </table>
+          <h3>Recent visits</h3>
+          <table>
+            <thead><tr><th>Visit</th><th>When</th><th>Cost</th></tr></thead>
+            <tbody>
+              {data.recentVisits.map((v: any) => (
+                <tr key={v.visitId}><td><Link to={`/visits/${v.visitId}`}>{v.visitId.slice(0, 8)}</Link></td><td>{new Date(v.at).toLocaleString()}</td><td>{usd(v.usd)}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
+    </Shell>
+  );
+}
+
 function Lessons() {
   const [status, setStatus] = useState<"pending" | "approved" | "rejected">("pending");
   const [rows, setRows] = useState<any[]>([]);
@@ -655,6 +725,7 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/review" element={<Guard><History flagged /></Guard>} />
         <Route path="/team" element={<Guard><Team /></Guard>} />
         <Route path="/lessons" element={<Guard><Lessons /></Guard>} />
+        <Route path="/costs" element={<Guard><Costs /></Guard>} />
         <Route path="/visits/:id" element={<Guard><VisitDetail /></Guard>} />
         <Route path="/visits/:id/live" element={<Guard><LiveVisit /></Guard>} />
       </Routes>

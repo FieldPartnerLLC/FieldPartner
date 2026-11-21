@@ -113,3 +113,57 @@ def test_watcher_skips_stale_frames_paused_camera_and_respects_interval():
     assert not b.due(frame_arrived_at=c.t, camera_allowed=True)
     c.t += 4
     assert b.due(frame_arrived_at=c.t, camera_allowed=True)
+
+
+# ---------------------------------------------------------------- cost controls
+
+from policy import SceneGate, UsageMeter, thumb_diff  # noqa: E402
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.t = 1000.0
+
+    def __call__(self) -> float:
+        return self.t
+
+
+def test_scene_gate_skips_an_unchanged_view_and_rechecks_it_later():
+    clock = FakeClock()
+    gate = SceneGate(clock=clock, static_recheck_seconds=30)
+    panel = bytes([100] * 256)
+    assert gate.should_check(panel)  # first look
+    clock.t += 5
+    assert not gate.should_check(bytes([102] * 256))  # lighting flicker, same panel
+    clock.t += 5
+    assert not gate.should_check(panel)
+    clock.t += 25
+    assert gate.should_check(panel)  # 30 s passed, look again anyway
+    assert gate.skipped == 2
+
+
+def test_scene_gate_checks_at_once_when_the_view_changes():
+    clock = FakeClock()
+    gate = SceneGate(clock=clock)
+    assert gate.should_check(bytes([100] * 256))
+    clock.t += 1
+    assert gate.should_check(bytes([30] * 128 + [200] * 128))
+
+
+def test_thumb_diff_handles_missing_and_mismatched_thumbs():
+    assert thumb_diff(None, b"\x00") == 255.0
+    assert thumb_diff(b"\x00\x00", b"\x00") == 255.0
+    assert thumb_diff(b"\x0a\x14", b"\x0a\x0a") == 5.0
+
+
+def test_usage_meter_totals_takes_and_restores():
+    m = UsageMeter()
+    m.add("gemini-3.1-flash-live-preview", "live", input_tokens=1000, audio_in_tokens=400, image_in_tokens=300, output_tokens=200, audio_out_tokens=200)
+    m.add("gemini-3.1-flash-live-preview", "live", input_tokens=500)
+    m.add("gemini-3.5-flash-lite", "safety_watcher", input_tokens=120, output_tokens=5)
+    items = m.take()
+    live = next(i for i in items if i["task"] == "live")
+    assert live["inputTokens"] == 1500 and live["audioOutTokens"] == 200
+    assert m.take() == []
+    m.restore(items)
+    assert len(m.take()) == 2

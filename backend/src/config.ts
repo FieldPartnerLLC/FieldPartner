@@ -31,13 +31,17 @@ const schema = z.object({
   CLOUD_RECORDING: bool,
 
   GOOGLE_API_KEY: z.string().optional(),
-  REPORT_MODEL: z.string().default("gemini-3.5-flash"),
+  // Backup report writer if Claude is down. Flash-Lite: $0.30 in / $2.50 out per 1M tokens.
+  REPORT_MODEL: z.string().default("gemini-3.5-flash-lite"),
 
   // Claude: the "senior expert" during visits, report drafting and lesson writing.
   ANTHROPIC_API_KEY: z.string().optional(),
   ANTHROPIC_BASE_URL: z.string().default("https://api.anthropic.com"),
-  CLAUDE_MODEL: z.string().default("claude-sonnet-5-5"),
-  CLAUDE_REPORT_MODEL: z.string().default("claude-sonnet-5-5"),
+  // Routing (lib/router.ts): routine work goes to the fast model, risky or stuck work to the expert.
+  CLAUDE_MODEL: z.string().default("claude-sonnet-5-5"), // expert: $2 in / $10 out per 1M tokens
+  CLAUDE_FAST_MODEL: z.string().default("claude-haiku-5-5"), // fast: $0.10 in / $0.50 out per 1M tokens
+  // Per company per calendar month, Claude plus Gemini. Past it, everything uses the fast model. 0 = no cap.
+  AI_MONTHLY_BUDGET_USD: z.coerce.number().default(0),
 
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),

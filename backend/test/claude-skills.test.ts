@@ -33,6 +33,16 @@ function reply(body: any): string {
   if (system.includes("Write a field service report")) {
     return "```json\n" + JSON.stringify({ summary: "Cleaned the flame sensor. Furnace runs normally.", findings: ["Flame sensor dirty"], workPerformed: ["Cleaned flame sensor"] }) + "\n```";
   }
+  if (system.includes("You read equipment nameplates")) {
+    return "Carrier, model 59SC5A100, serial 4519A12345.";
+  }
+  if (system.includes("senior") && system.includes("Reply with only this JSON")) {
+    // Fast model self-check. It admits doubt when the question says "weird".
+    const confident = !user.includes("weird");
+    const usedLesson = system.includes("Dirty flame sensor");
+    const answer = usedLesson ? "On past jobs this was the flame sensor. Clean it and run three cycles." : `Check the flame sensor first.${user.includes("image") ? " I can see the burner." : ""}`;
+    return JSON.stringify({ answer, confident });
+  }
   if (system.includes("senior")) {
     const usedLesson = system.includes("Dirty flame sensor");
     return usedLesson ? "On past jobs this was the flame sensor. Clean it and run three cycles." : `Check the flame sensor first.${user.includes("image") ? " I can see the burner." : ""}`;
@@ -48,7 +58,7 @@ beforeAll(async () => {
       const body = JSON.parse(raw || "{}");
       calls.push({ headers: req.headers, body });
       res.setHeader("content-type", "application/json");
-      res.end(JSON.stringify({ content: [{ type: "text", text: reply(body) }] }));
+      res.end(JSON.stringify({ content: [{ type: "text", text: reply(body) }], usage: { input_tokens: 1000, output_tokens: 100 } }));
     });
   });
   await new Promise<void>((r) => fake.listen(0, "127.0.0.1", () => r()));
@@ -144,6 +154,9 @@ describe("Claude as the senior expert", () => {
     }
     expect(rep.status).toBe("draft");
     expect(rep.report.summary).toMatch(/flame sensor/i);
+    // A routine visit (no safety stop, no supervisor) is written by the fast model.
+    const reportCall = calls.filter((c) => String(c.body.system).includes("Write a field service report")).at(-1);
+    expect(reportCall.body.model).toBe("claude-haiku-5-5");
 
     const ap = await w.app.inject({ method: "POST", url: `/visits/${visit.id}/report/approve`, headers: auth(w.tokens.tech), payload: { sendSms: false, sendEmail: false } });
     expect(ap.statusCode).toBe(200);
@@ -199,6 +212,101 @@ describe("Claude as the senior expert", () => {
     expect(r.json().answer).toBeNull();
     process.env.ANTHROPIC_API_KEY = "test-key";
     resetConfig();
+  });
+});
+
+describe("model routing and cost", () => {
+  it("sends a routine question to the fast model", async () => {
+    const visit = await hvacVisit();
+    const r = await w.app.inject({ method: "POST", url: `/agent/visits/${visit.id}/consult`, headers: AGENT, payload: { question: "Where is the filter on this unit?" } });
+    expect(r.json().tier).toBe("fast");
+    expect(calls.at(-1).body.model).toBe("claude-haiku-5-5");
+  });
+
+  it("sends a safety question straight to the expert model", async () => {
+    const visit = await hvacVisit();
+    const before = calls.length;
+    const r = await w.app.inject({ method: "POST", url: `/agent/visits/${visit.id}/consult`, headers: AGENT, payload: { question: "I smell gas near the furnace, what do I check?" } });
+    expect(r.json().tier).toBe("expert");
+    expect(calls.length - before).toBe(1);
+    expect(calls.at(-1).body.model).toBe("claude-sonnet-5-5");
+  });
+
+  it("moves up to the expert model when the fast model is not confident", async () => {
+    const visit = await hvacVisit();
+    const before = calls.length;
+    const r = await w.app.inject({ method: "POST", url: `/agent/visits/${visit.id}/consult`, headers: AGENT, payload: { question: "The blower makes a weird ticking sound" } });
+    expect(r.json().tier).toBe("expert");
+    expect(r.json().why).toMatch(/not confident/);
+    const used = calls.slice(before).map((c) => c.body.model);
+    expect(used).toEqual(["claude-haiku-5-5", "claude-sonnet-5-5"]);
+  });
+
+  it("reads a nameplate with the fast model", async () => {
+    const visit = await hvacVisit();
+    const r = await w.app.inject({
+      method: "POST",
+      url: `/agent/visits/${visit.id}/consult`,
+      headers: AGENT,
+      payload: { kind: "read", question: "model and serial", imageJpegBase64: Buffer.from("plate").toString("base64") },
+    });
+    expect(r.json().answer).toMatch(/59SC5A100/);
+    expect(calls.at(-1).body.model).toBe("claude-haiku-5-5");
+    expect(calls.at(-1).body.max_tokens).toBeLessThanOrEqual(250);
+  });
+
+  it("meters Claude and Gemini and shows the month's cost to the owner only", async () => {
+    const visit = await hvacVisit();
+    const g = await w.app.inject({
+      method: "POST",
+      url: `/agent/visits/${visit.id}/usage`,
+      headers: AGENT,
+      payload: { items: [{ model: "gemini-3.1-flash-live-preview", task: "live", inputTokens: 100000, audioInTokens: 40000, imageInTokens: 50000, outputTokens: 6000, audioOutTokens: 6000 }] },
+    });
+    expect(g.statusCode).toBe(200);
+    // 10k text x 0.75 + 40k audio x 3 + 50k image x 1 + 6k audio out x 12 = $0.2495
+    expect(g.json().usd).toBeCloseTo(0.2495, 4);
+    const u = await w.app.inject({ method: "GET", url: `/usage?companyId=${w.companyId}`, headers: auth(w.tokens.owner) });
+    expect(u.statusCode).toBe(200);
+    const body = u.json();
+    expect(body.monthToDateUsd).toBeGreaterThan(0.25);
+    expect(body.byModel.map((m: any) => m.model)).toEqual(expect.arrayContaining(["gemini-3.1-flash-live-preview", "claude-haiku-5-5", "claude-sonnet-5-5"]));
+    expect(body.costPerVisitUsd).toBeGreaterThan(0);
+    const denied = await w.app.inject({ method: "GET", url: "/usage", headers: auth(w.tokens.tech) });
+    expect(denied.statusCode).toBe(403);
+  });
+
+  it("drops to the fast model once the monthly budget is used up", async () => {
+    process.env.AI_MONTHLY_BUDGET_USD = "0.01";
+    const { resetConfig } = await import("../src/config.js");
+    resetConfig();
+    const visit = await hvacVisit();
+    const r = await w.app.inject({ method: "POST", url: `/agent/visits/${visit.id}/consult`, headers: AGENT, payload: { question: "Sparks at the disconnect, what now?" } });
+    expect(r.json().tier).toBe("fast");
+    expect(r.json().why).toMatch(/budget/);
+    delete process.env.AI_MONTHLY_BUDGET_USD;
+    resetConfig();
+  });
+});
+
+describe("pricing and routing rules", () => {
+  it("prices tokens at list rates", async () => {
+    const { costUsd } = await import("../src/lib/pricing.js");
+    expect(costUsd("claude-haiku-5-5", { inputTokens: 1_000_000, outputTokens: 1_000_000 })).toBeCloseTo(0.6, 6);
+    expect(costUsd("claude-sonnet-5-5", { inputTokens: 1_000_000, outputTokens: 1_000_000 })).toBeCloseTo(12, 6);
+    expect(costUsd("claude-sonnet-5-5-20261101", { inputTokens: 1_000_000 })).toBeCloseTo(2, 6);
+    expect(costUsd("some-new-model", { inputTokens: 1_000_000 })).toBeCloseTo(4, 6);
+  });
+
+  it("routes by risk and by how stuck the tech is", async () => {
+    const { consultRoute, reportRoute } = await import("../src/lib/router.js");
+    expect(consultRoute("Which way does this filter go?").tier).toBe("fast");
+    expect(consultRoute("CO reading is 40 ppm at the flue").tier).toBe("expert");
+    expect(consultRoute("Replaced the capacitor and it still won't start").tier).toBe("expert");
+    expect(consultRoute("What next?", ["Technician: there is a burning smell"]).tier).toBe("expert");
+    const base = { companyName: "", trade: "hvac", jobTitle: "", complaint: null, customerName: null, address: null, techName: "", startedAt: "", endedAt: null, equipment: {}, consents: [] };
+    expect(reportRoute({ ...base, events: [{ ts: "", type: "note", actor: "ai", data: { text: "ok" } }] }).tier).toBe("fast");
+    expect(reportRoute({ ...base, events: [{ ts: "", type: "safety", actor: "ai", data: { reason: "CO" } }] }).tier).toBe("expert");
   });
 });
 

@@ -7,6 +7,7 @@ import { assertCompanyAccess, canSupervise } from "./auth.js";
 import * as lk from "./lib/livekit.js";
 import { pagePhone, sendEmail, sendSms } from "./lib/notify.js";
 import { askClaude, extractJson } from "./lib/claude.js";
+import { lessonRoute } from "./lib/router.js";
 import { generateReport, renderVisitRecord, reportPdf, type ReportInputs, type VisitReport } from "./lib/report.js";
 import { LESSON_PROMPT, normalizeLessons } from "./lib/skills.js";
 import { presignGet, putObject, visitKey } from "./lib/storage.js";
@@ -456,7 +457,7 @@ export async function buildReport(visitId: string): Promise<VisitReport> {
   try {
     const inputs = await reportInputs(visit);
     const trade = await one<any>("select profile from trade_profiles where id = $1", [inputs.trade]);
-    const report = await generateReport(inputs, trade?.profile ?? null);
+    const report = await generateReport(inputs, trade?.profile ?? null, { companyId: visit.company_id, visitId: visit.id });
     await q("update visits set report = $2, report_status = 'draft' where id = $1 and report_status in ('generating','failed','none','draft')", [
       visitId,
       JSON.stringify(report),
@@ -542,10 +543,12 @@ export async function proposeLessons(visitId: string): Promise<number> {
     const inputs = await reportInputs(visit);
     const report = visit.report ? JSON.stringify(visit.report) : "none";
     const text = await askClaude({
-      model: config().CLAUDE_REPORT_MODEL,
+      tier: lessonRoute().tier,
+      scope: { companyId: visit.company_id, visitId: visit.id },
+      task: "lessons",
       system: LESSON_PROMPT,
       content: `TRADE: ${inputs.trade}\nAPPROVED REPORT:\n${report}\n\nVISIT RECORD:\n${renderVisitRecord(inputs)}`,
-      maxTokens: 1200,
+      maxTokens: 800,
       temperature: 0.1,
       timeoutMs: 90_000,
     });

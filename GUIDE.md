@@ -452,6 +452,41 @@ Also before submitting, turn off plain http:
 | Recordings backup | Not backed up on the Render disk. Before real customer volume, set `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` (AWS S3 or Cloudflare R2). The disk is then no longer used. |
 | Rotate a leaked key | Make a new key at the provider, paste it on Render (both API and agent where it appears), then delete the old one |
 
+## 9b. AI cost control
+
+Every AI call is metered. Admins see the month's spend at **Portal > AI costs** (https://fieldpartner-portal.onrender.com/costs): total, average per visit, by job and by model.
+
+### Who does what (cheapest model that can do the job)
+
+| Job | Model | Price per 1M tokens (in / out) |
+|---|---|---|
+| Voice and camera during the visit | Gemini 3.1 Flash Live | $3 audio, $1 video, $0.75 text in / $12 audio out |
+| Hazard watcher (one frame every 5 s) | Gemini 3.5 Flash-Lite | $0.30 / $2.50 |
+| Routine questions | Claude Haiku 5.5 | $0.10 / $0.50 |
+| Reading nameplates and display codes | Claude Haiku 5.5 | $0.10 / $0.50 |
+| Routine reports, lesson writing | Claude Haiku 5.5 | $0.10 / $0.50 |
+| Safety questions (gas, CO, sparks, high voltage, refrigerant...), a fix that already failed, or Haiku not confident | Claude Sonnet 5.5 | $2 / $10 |
+| Reports for visits with a safety stop, supervisor, dispute or a long transcript | Claude Sonnet 5.5 | $2 / $10 |
+
+The rules live in `backend/src/lib/router.ts`. For a routine question Haiku answers and grades itself; if it says it is not confident, the question goes to Sonnet.
+
+### Gemini Live settings (the biggest cost)
+
+Gemini Live charges for the whole conversation again on every turn, so the agent keeps that conversation short:
+
+- The assistant hears and sees nothing until the wake phrase or the Talk button (already built in).
+- Camera at low detail (`GEMINI_MEDIA_RESOLUTION=low`) and 1 frame every 2 seconds (`GEMINI_VIDEO_FPS=0.5`), only while listening. Small print goes to `read_label` (one sharp photo to Haiku) instead.
+- Session memory is trimmed to 5,000 tokens whenever it passes 12,000 (`GEMINI_CONTEXT_TRIGGER_TOKENS`, `GEMINI_CONTEXT_TARGET_TOKENS`). Readings, equipment and notes are saved by tools, so nothing important is lost.
+- The hazard watcher skips frames when the view has not changed and rechecks a still view every 30 s (`SAFETY_STATIC_RECHECK_SECONDS`).
+
+### Budget
+
+`AI_MONTHLY_BUDGET_USD` on the API service (default 100, per company per calendar month). Past it, every Claude call uses Haiku. The live voice keeps working.
+
+### Expected cost (estimate, check the AI costs page after real visits)
+
+A 30-minute visit with the assistant listening for about 8 minutes over 25 questions: about **$0.45** (Gemini Live about $0.40, watcher about $0.04, Claude about $0.02). Before these controls the same visit was about $2. 10 technicians doing 4 visits a day for 22 days is about **$400 a month** in AI. Render hosting is a separate $40.50 a month.
+
 ---
 
 ## 10. Troubleshooting

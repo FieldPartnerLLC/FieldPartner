@@ -130,3 +130,86 @@ class WatcherBudget:
             return False
         self._last_check = now
         return True
+
+
+def thumb_diff(a: bytes | None, b: bytes | None) -> float:
+    """Mean absolute difference (0-255) between two same-size grayscale thumbnails."""
+    if not a or not b or len(a) != len(b):
+        return 255.0
+    return sum(abs(x - y) for x, y in zip(a, b)) / len(a)
+
+
+@dataclass
+class SceneGate:
+    """
+    Skips hazard checks while the camera sees the same thing. A tech staring at one panel for
+    two minutes does not need 24 identical checks. A changed scene is checked at once (subject to
+    the WatcherBudget interval); an unchanged one at most every `static_recheck_seconds`.
+    """
+
+    change_threshold: float = 8.0  # on 0-255; lighting flicker stays under about 4
+    static_recheck_seconds: float = 30.0
+    clock: Callable[[], float] = time.monotonic
+    _last_thumb: bytes | None = None
+    _last_check: float = 0.0
+    skipped: int = 0
+
+    def should_check(self, thumb: bytes) -> bool:
+        now = self.clock()
+        changed = thumb_diff(thumb, self._last_thumb) >= self.change_threshold
+        if changed or now - self._last_check >= self.static_recheck_seconds:
+            self._last_thumb = thumb
+            self._last_check = now
+            return True
+        self.skipped += 1
+        return False
+
+
+@dataclass
+class UsageMeter:
+    """Adds up tokens per (model, task) so the agent can report the Gemini bill to the backend."""
+
+    _rows: dict[tuple[str, str], dict[str, int]] = field(default_factory=dict)
+
+    def add(
+        self,
+        model: str,
+        task: str,
+        *,
+        input_tokens: int = 0,
+        cached_tokens: int = 0,
+        audio_in_tokens: int = 0,
+        image_in_tokens: int = 0,
+        output_tokens: int = 0,
+        audio_out_tokens: int = 0,
+    ) -> None:
+        row = self._rows.setdefault(
+            (model, task),
+            {"inputTokens": 0, "cachedTokens": 0, "audioInTokens": 0, "imageInTokens": 0, "outputTokens": 0, "audioOutTokens": 0},
+        )
+        row["inputTokens"] += max(0, int(input_tokens or 0))
+        row["cachedTokens"] += max(0, int(cached_tokens or 0))
+        row["audioInTokens"] += max(0, int(audio_in_tokens or 0))
+        row["imageInTokens"] += max(0, int(image_in_tokens or 0))
+        row["outputTokens"] += max(0, int(output_tokens or 0))
+        row["audioOutTokens"] += max(0, int(audio_out_tokens or 0))
+
+    def take(self) -> list[dict]:
+        """Returns the totals since the last take and resets."""
+        items = [{"model": m, "task": t, **v} for (m, t), v in self._rows.items() if any(v.values())]
+        self._rows = {}
+        return items
+
+    def restore(self, items: list[dict]) -> None:
+        """Puts items back after a failed upload so nothing is lost."""
+        for it in items:
+            self.add(
+                it["model"],
+                it["task"],
+                input_tokens=it["inputTokens"],
+                cached_tokens=it["cachedTokens"],
+                audio_in_tokens=it["audioInTokens"],
+                image_in_tokens=it["imageInTokens"],
+                output_tokens=it["outputTokens"],
+                audio_out_tokens=it["audioOutTokens"],
+            )
