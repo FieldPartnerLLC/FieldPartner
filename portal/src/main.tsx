@@ -174,6 +174,7 @@ function Shell({ children }: { children: React.ReactNode }) {
           <Link to="/">Live</Link>
           <Link to="/history">History</Link>
           <Link to="/review">Review</Link>
+          {user.role !== "tech" && <Link to="/lessons">Lessons</Link>}
           {(user.role === "admin" || user.role === "owner") && <Link to="/team">Team</Link>}
         </nav>
         <span className="muted">{user.name}</span>
@@ -499,6 +500,145 @@ function Team() {
   );
 }
 
+
+const tradeName = (id: string) => TRADES.find(([t]) => t === id)?.[1] ?? id;
+
+/**
+ * Knowledge base review. Claude proposes lessons from approved visits; experts approve, correct or
+ * reject them, and can write their own. Only approved lessons are ever used by the AI.
+ */
+function Lessons() {
+  const [status, setStatus] = useState<"pending" | "approved" | "rejected">("pending");
+  const [rows, setRows] = useState<any[]>([]);
+  const [counts, setCounts] = useState<Record<string, number>>({});
+  const [editing, setEditing] = useState<string | null>(null);
+  const [draft, setDraft] = useState<any>({});
+  const blank = { trade: "hvac", equipment_type: "", brand: "", model: "", symptom: "", error_code: "", cause: "", fix: "", parts: "" };
+  const [form, setForm] = useState(blank);
+  const [msg, setMsg] = useState("");
+  const load = () =>
+    api(`/lessons?status=${status}`)
+      .then((r) => {
+        setRows(r.lessons);
+        setCounts(r.counts);
+      })
+      .catch((e) => setMsg(e.message));
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
+  const save = async (id: string, body: any) => {
+    await api(`/lessons/${id}`, { method: "PATCH", body });
+    setEditing(null);
+    load();
+  };
+  const field = (k: string, label: string, long = false) => (
+    <label key={k}>
+      {label}
+      {long ? (
+        <textarea rows={2} value={draft[k] ?? ""} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} />
+      ) : (
+        <input value={draft[k] ?? ""} onChange={(e) => setDraft({ ...draft, [k]: e.target.value })} />
+      )}
+    </label>
+  );
+  return (
+    <Shell>
+      <h2>Lessons</h2>
+      <p className="muted">
+        After each approved visit report, Claude suggests what the company learned: the equipment, the symptom, the cause and the fix.
+        Approve the ones that are right. Approved lessons are what the AI uses on the next similar job. Nothing is used until it is approved.
+      </p>
+      <div className="row" style={{ margin: "12px 0" }}>
+        {(["pending", "approved", "rejected"] as const).map((s) => (
+          <button key={s} className={status === s ? "primary" : ""} onClick={() => setStatus(s)}>
+            {s === "pending" ? "To review" : s === "approved" ? "Approved" : "Rejected"} ({counts[s] ?? 0})
+          </button>
+        ))}
+      </div>
+      {msg && <p className="error">{msg}</p>}
+      {rows.length === 0 && <div className="card muted">{status === "pending" ? "Nothing to review. New suggestions appear after technicians approve their visit reports." : "None yet."}</div>}
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {rows.map((l) =>
+          editing === l.id ? (
+            <div className="card narrow" key={l.id} style={{ width: "min(640px, 96vw)" }}>
+              {field("equipment_type", "Equipment")}
+              <div className="row">{field("brand", "Brand")}{field("model", "Model")}{field("error_code", "Error code")}</div>
+              {field("symptom", "Symptom", true)}
+              {field("cause", "Cause", true)}
+              {field("fix", "Fix", true)}
+              {field("parts", "Parts")}
+              <div className="row">
+                <button className="primary" onClick={() => save(l.id, { ...draft, status: "approved" })}>Save and approve</button>
+                <button onClick={() => setEditing(null)}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <div className="card" key={l.id}>
+              <div className="row" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
+                <b>
+                  {tradeName(l.trade)}: {[l.brand, l.model, l.equipment_type].filter(Boolean).join(" ") || "Equipment not recorded"}
+                  {l.error_code ? `, code ${l.error_code}` : ""}
+                </b>
+                <span className="muted small">
+                  {l.source === "expert" ? "Written by an expert" : l.job_title ? `From visit: ${l.job_title}` : "From a visit"}
+                  {l.times_used ? ` · used ${l.times_used} times` : ""}
+                </span>
+              </div>
+              <p><span className="muted">Symptom:</span> {l.symptom}</p>
+              {l.cause && <p><span className="muted">Cause:</span> {l.cause}</p>}
+              <p><span className="muted">Fix:</span> {l.fix}</p>
+              {l.parts && <p><span className="muted">Parts:</span> {l.parts}</p>}
+              <div className="row">
+                {l.status !== "approved" && <button className="primary" onClick={() => save(l.id, { status: "approved" })}>Approve</button>}
+                <button onClick={() => { setDraft({ ...l }); setEditing(l.id); }}>Edit</button>
+                {l.status !== "rejected" && <button onClick={() => save(l.id, { status: "rejected" })}>Reject</button>}
+              </div>
+            </div>
+          ),
+        )}
+      </div>
+
+      <form
+        className="card narrow"
+        style={{ width: "min(640px, 96vw)", marginTop: 24 }}
+        onSubmit={async (e) => {
+          e.preventDefault();
+          setMsg("");
+          try {
+            const body = Object.fromEntries(Object.entries(form).map(([k, v]) => [k, v === "" ? null : v]));
+            await api("/lessons", { body });
+            setForm(blank);
+            setStatus("approved");
+            load();
+          } catch (err: any) {
+            setMsg(err.message);
+          }
+        }}
+      >
+        <h3>Add a lesson from your own experience</h3>
+        <p className="muted small">Write a fix you know works. It is approved right away and the AI uses it on matching jobs.</p>
+        <label>Trade
+          <select value={form.trade} onChange={(e) => setForm({ ...form, trade: e.target.value })}>
+            {TRADES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+          </select>
+        </label>
+        <label>Equipment<input value={form.equipment_type} onChange={(e) => setForm({ ...form, equipment_type: e.target.value })} placeholder="Gas furnace" /></label>
+        <div className="row">
+          <label>Brand<input value={form.brand} onChange={(e) => setForm({ ...form, brand: e.target.value })} /></label>
+          <label>Model<input value={form.model} onChange={(e) => setForm({ ...form, model: e.target.value })} /></label>
+          <label>Error code<input value={form.error_code} onChange={(e) => setForm({ ...form, error_code: e.target.value })} /></label>
+        </div>
+        <label>Symptom<textarea rows={2} value={form.symptom} onChange={(e) => setForm({ ...form, symptom: e.target.value })} required /></label>
+        <label>Cause<textarea rows={2} value={form.cause} onChange={(e) => setForm({ ...form, cause: e.target.value })} /></label>
+        <label>Fix<textarea rows={2} value={form.fix} onChange={(e) => setForm({ ...form, fix: e.target.value })} required /></label>
+        <label>Parts<input value={form.parts} onChange={(e) => setForm({ ...form, parts: e.target.value })} /></label>
+        <button className="primary">Add lesson</button>
+      </form>
+    </Shell>
+  );
+}
+
 function Guard({ children }: { children: React.ReactNode }) {
   return token() ? <>{children}</> : <Navigate to="/login" />;
 }
@@ -514,6 +654,7 @@ createRoot(document.getElementById("root")!).render(
         <Route path="/history" element={<Guard><History /></Guard>} />
         <Route path="/review" element={<Guard><History flagged /></Guard>} />
         <Route path="/team" element={<Guard><Team /></Guard>} />
+        <Route path="/lessons" element={<Guard><Lessons /></Guard>} />
         <Route path="/visits/:id" element={<Guard><VisitDetail /></Guard>} />
         <Route path="/visits/:id/live" element={<Guard><LiveVisit /></Guard>} />
       </Routes>

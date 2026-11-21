@@ -103,3 +103,44 @@ async def test_queue_is_bounded_in_a_very_long_outage():
     assert c.dropped == 50
     c._queue.clear()
     await c.close()
+
+
+async def test_consult_sends_question_photo_and_recent_lines():
+    seen = {}
+
+    async def consult(req):
+        seen.update(await req.json())
+        return web.json_response({"answer": "Check the flame sensor.", "lessonsUsed": 1})
+
+    app = web.Application()
+    app.router.add_post("/agent/visits/v1/consult", consult)
+    runner, url = await start(app)
+    c = BackendClient(url, "tok", "v1")
+    res = await c.consult("Code 34?", "aGk=", ["Technician: it shuts off", "Assistant: checking"])
+    assert res["answer"].startswith("Check")
+    assert seen["imageJpegBase64"] == "aGk="
+    assert seen["recentTranscript"][0].startswith("Technician")
+    await c.close()
+    await runner.cleanup()
+
+
+async def test_consult_gives_up_after_one_slow_attempt():
+    async def consult(req):
+        await asyncio.sleep(5)
+        return web.json_response({})
+
+    app = web.Application()
+    app.router.add_post("/agent/visits/v1/consult", consult)
+    runner, url = await start(app)
+    c = BackendClient(url, "tok", "v1")
+    import time as _t
+
+    t = _t.monotonic()
+    try:
+        await c._request("POST", "/agent/visits/v1/consult", {"question": "x"}, attempts=1, timeout=0.3)
+        raised = False
+    except ConnectionError:
+        raised = True
+    assert raised and _t.monotonic() - t < 2
+    await c.close()
+    await runner.cleanup()

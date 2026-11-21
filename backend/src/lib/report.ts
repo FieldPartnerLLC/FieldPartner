@@ -1,6 +1,8 @@
 import { GoogleGenAI } from "@google/genai";
 import PDFDocument from "pdfkit";
 import { config, features } from "../config.js";
+import { askClaude, extractJson } from "./claude.js";
+import { tradeSkill } from "./skills.js";
 
 export interface VisitReport {
   customerComplaint: string;
@@ -151,11 +153,31 @@ export function normalizeReport(raw: any, fallback: VisitReport): VisitReport {
   return out;
 }
 
-export async function generateReport(input: ReportInputs): Promise<VisitReport> {
+/**
+ * Drafts the report. Claude writes it when ANTHROPIC_API_KEY is set (it reads the trade skill so
+ * terms and checks are right); Gemini is the fallback; with neither, a facts-only draft.
+ */
+export async function generateReport(input: ReportInputs, tradeProfile?: Record<string, any> | null): Promise<VisitReport> {
   const fallback = emptyReport(input);
+  const record = renderVisitRecord(input);
+  if (features.claude()) {
+    try {
+      const text = await askClaude({
+        model: config().CLAUDE_REPORT_MODEL,
+        system: `${REPORT_PROMPT}\nReturn only the JSON object, no other text.\n\nTrade reference (for terms and checks only, never as facts about this visit):\n${tradeSkill(input.trade, tradeProfile)}`,
+        content: `VISIT RECORD:\n${record}`,
+        maxTokens: 2000,
+        temperature: 0.1,
+        timeoutMs: 90_000,
+      });
+      const parsed = extractJson(text);
+      if (parsed && typeof parsed === "object") return normalizeReport(parsed, fallback);
+    } catch (e) {
+      console.warn("[report] Claude draft failed, trying Gemini:", (e as Error).message);
+    }
+  }
   if (!features.gemini()) return fallback;
   const ai = new GoogleGenAI({ apiKey: config().GOOGLE_API_KEY });
-  const record = renderVisitRecord(input);
   const res = await ai.models.generateContent({
     model: config().REPORT_MODEL,
     contents: [{ role: "user", parts: [{ text: `${REPORT_PROMPT}\n\nVISIT RECORD:\n${record}` }] }],

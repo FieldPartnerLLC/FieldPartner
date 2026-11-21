@@ -6,7 +6,9 @@ import type { AuthUser } from "./auth.js";
 import { assertCompanyAccess, canSupervise } from "./auth.js";
 import * as lk from "./lib/livekit.js";
 import { pagePhone, sendEmail, sendSms } from "./lib/notify.js";
-import { generateReport, reportPdf, type ReportInputs, type VisitReport } from "./lib/report.js";
+import { askClaude, extractJson } from "./lib/claude.js";
+import { generateReport, renderVisitRecord, reportPdf, type ReportInputs, type VisitReport } from "./lib/report.js";
+import { LESSON_PROMPT, normalizeLessons } from "./lib/skills.js";
 import { presignGet, putObject, visitKey } from "./lib/storage.js";
 
 export const EVENT_TYPES = [
@@ -30,6 +32,7 @@ export const EVENT_TYPES = [
   "consent",
   "device",
   "error",
+  "consult",
 ] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
@@ -451,7 +454,9 @@ export async function reportInputs(visit: VisitRow): Promise<ReportInputs> {
 export async function buildReport(visitId: string): Promise<VisitReport> {
   const visit = await loadVisit(visitId);
   try {
-    const report = await generateReport(await reportInputs(visit));
+    const inputs = await reportInputs(visit);
+    const trade = await one<any>("select profile from trade_profiles where id = $1", [inputs.trade]);
+    const report = await generateReport(inputs, trade?.profile ?? null);
     await q("update visits set report = $2, report_status = 'draft' where id = $1 and report_status in ('generating','failed','none','draft')", [
       visitId,
       JSON.stringify(report),
@@ -522,4 +527,39 @@ export async function visitDetail(visit: VisitRow, user: AuthUser) {
     media.map(async (m) => ({ ...m, url: m.status === "uploaded" && canSupervise(user) ? await presignGet(m.s3_key).catch(() => null) : null })),
   );
   return { visit, job, customer, tech, events, consents, media: withUrls };
+}
+
+/**
+ * After a report is approved, Claude proposes reusable lessons from the visit. They wait as
+ * "pending" until an expert or admin approves them in the portal. Never throws.
+ */
+export async function proposeLessons(visitId: string): Promise<number> {
+  if (!features.claude()) return 0;
+  try {
+    const visit = await loadVisit(visitId);
+    const existing = await one<{ n: number }>("select count(*)::int as n from skill_lessons where source_visit_id = $1", [visitId]);
+    if ((existing?.n ?? 0) > 0) return 0;
+    const inputs = await reportInputs(visit);
+    const report = visit.report ? JSON.stringify(visit.report) : "none";
+    const text = await askClaude({
+      model: config().CLAUDE_REPORT_MODEL,
+      system: LESSON_PROMPT,
+      content: `TRADE: ${inputs.trade}\nAPPROVED REPORT:\n${report}\n\nVISIT RECORD:\n${renderVisitRecord(inputs)}`,
+      maxTokens: 1200,
+      temperature: 0.1,
+      timeoutMs: 90_000,
+    });
+    const lessons = normalizeLessons(extractJson(text));
+    for (const l of lessons) {
+      await q(
+        `insert into skill_lessons (company_id, trade, equipment_type, brand, model, symptom, error_code, cause, fix, parts, source, source_visit_id, status)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'visit',$11,'pending')`,
+        [visit.company_id, inputs.trade, l.equipment_type, l.brand, l.model, l.symptom, l.error_code, l.cause, l.fix, l.parts, visit.id],
+      );
+    }
+    return lessons.length;
+  } catch (e) {
+    console.warn("[lessons] could not propose lessons:", (e as Error).message);
+    return 0;
+  }
 }

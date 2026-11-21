@@ -40,13 +40,15 @@ class BackendClient:
             self._session = aiohttp.ClientSession(timeout=self.timeout)
         return self._session
 
-    async def _request(self, method: str, path: str, json_body: Any = None, attempts: int = 3) -> Any:
+    async def _request(self, method: str, path: str, json_body: Any = None, attempts: int = 3, timeout: float | None = None) -> Any:
         delay = 0.5
         last: Exception | None = None
         for attempt in range(attempts):
             try:
                 http = await self._http()
-                async with http.request(method, f"{self.base}{path}", headers=self._headers(), json=json_body) as resp:
+                # Only override when asked: passing timeout=None to aiohttp disables the session timeout.
+                extra = {"timeout": aiohttp.ClientTimeout(total=timeout)} if timeout else {}
+                async with http.request(method, f"{self.base}{path}", headers=self._headers(), json=json_body, **extra) as resp:
                     if resp.status >= 500:
                         raise aiohttp.ClientResponseError(resp.request_info, resp.history, status=resp.status)
                     data = await resp.json(content_type=None)
@@ -65,6 +67,15 @@ class BackendClient:
 
     async def context(self) -> dict[str, Any]:
         return await self._request("GET", f"/agent/visits/{self.visit_id}/context", attempts=5)
+
+    async def consult(self, question: str, image_jpeg_b64: str | None = None, recent: list[str] | None = None) -> dict[str, Any]:
+        """Asks Claude (through the backend) as the company's senior expert. One attempt; the caller falls back."""
+        body: dict[str, Any] = {"question": question[:2000]}
+        if image_jpeg_b64:
+            body["imageJpegBase64"] = image_jpeg_b64
+        if recent:
+            body["recentTranscript"] = [r[:1000] for r in recent[-12:]]
+        return await self._request("POST", f"/agent/visits/{self.visit_id}/consult", body, attempts=1, timeout=40)
 
     async def escalate(self, reason: str) -> dict[str, Any]:
         return await self._request("POST", f"/agent/visits/{self.visit_id}/escalate", {"reason": reason})

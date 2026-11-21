@@ -388,6 +388,12 @@ class VisitController(private val app: FieldPartnerApp, val visit: Visit, val jo
             notify(Notice.Kind.TOOL, "Estimate draft ready", e.data["repair"].orEmpty())
           }
           "add_note" -> notify(Notice.Kind.TOOL, "Note saved", e.data["text"].orEmpty())
+          "senior_expert" ->
+            when (e.data["status"]) {
+              "asking" -> notify(Notice.Kind.INFO, "Checking with the senior expert", e.data["question"].orEmpty())
+              "answered" -> notify(Notice.Kind.TOOL, "Senior expert", e.data["answer"].orEmpty())
+              else -> notify(Notice.Kind.INFO, "Senior expert not available", "Using general guidance.")
+            }
         }
       is AgentEvent.Escalation -> {
         e.status?.let { s -> _ui.update { it.copy(escalation = s) } }

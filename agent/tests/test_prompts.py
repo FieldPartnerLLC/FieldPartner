@@ -65,3 +65,9 @@ def test_parse_safety_handles_model_variations():
 
 def test_clean_transcript_strips_control_tokens():
     assert clean_transcript("<ctrl46>Check the fuse<ctrl47>") == "Check the fuse"
+
+
+def test_prompt_tells_the_live_model_when_to_ask_the_senior_expert():
+    p = build_instructions({"trade": {"id": "hvac", "name": "HVAC"}, "job": {}, "company": {}, "tech": {}})
+    assert "ask_senior_expert" in p
+    assert "Checking with the senior expert" in p

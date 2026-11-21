@@ -17,11 +17,13 @@ Env: LIVEKIT_URL, LIVEKIT_API_KEY, LIVEKIT_API_SECRET, GOOGLE_API_KEY,
 from __future__ import annotations
 
 import asyncio
+import base64
 import io
 import json
 import logging
 import os
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -62,6 +64,7 @@ class VisitState:
     context: dict[str, Any] = field(default_factory=dict)
     session: AgentSession | None = None
     pending_hints: list[dict[str, Any]] = field(default_factory=list)
+    recent: deque[str] = field(default_factory=lambda: deque(maxlen=20))
 
     async def to_phone(self, payload: dict[str, Any]) -> None:
         try:
@@ -145,6 +148,38 @@ async def call_supervisor(ctx: RunContext[VisitState], reason: str) -> str:
 
 
 @function_tool
+async def ask_senior_expert(ctx: RunContext[VisitState], question: str) -> str:
+    """Ask the company's senior expert (a stronger reasoning model with the company's trade playbook and
+    past fixes) a diagnosis question. Use for error codes, wiring or control-board diagnosis, symptoms the
+    first checks did not explain, anything you are not sure about, or when the technician asks for a second
+    opinion. Include the equipment, the symptom and what was already checked in the question."""
+    st = ctx.userdata
+    image_b64 = None
+    fresh = st.frames.frame is not None and time.monotonic() - st.frames.arrived_at < 10
+    if fresh and st.gate.camera_allowed:
+        try:
+            jpeg = await asyncio.to_thread(jpeg_from_frame, st.frames.frame, 1280, 80)
+            image_b64 = base64.b64encode(jpeg).decode()
+        except Exception:
+            logger.exception("could not encode frame for consult")
+    await st.to_phone({"type": "tool", "name": "senior_expert", "data": {"status": "asking", "question": question}})
+    try:
+        res = await st.backend.consult(question, image_b64, list(st.recent))
+    except Exception as e:
+        logger.warning("consult failed: %s", e)
+        res = {}
+    answer = (res or {}).get("answer")
+    if not answer:
+        await st.to_phone({"type": "tool", "name": "senior_expert", "data": {"status": "unavailable"}})
+        return "The senior expert is not reachable right now. Answer from your own knowledge, say it is general guidance, or offer to call the supervisor."
+    await st.to_phone({"type": "tool", "name": "senior_expert", "data": {"status": "answered", "answer": answer}})
+    return (
+        "The senior expert answered. Say this to the technician in your own voice, briefly and faithfully. "
+        "Do not add steps or values it did not give. If it starts with Stop, treat it as a stop rule.\n\n" + answer
+    )
+
+
+@function_tool
 async def draft_estimate(
     ctx: RunContext[VisitState], problem: str, cause: str, recommended_repair: str, parts: str = ""
 ) -> str:
@@ -156,7 +191,7 @@ async def draft_estimate(
     return "The draft is on the technician's screen. Say only that it's on the screen."
 
 
-TOOLS = [save_reading, save_equipment, add_note, flag_safety_stop, call_supervisor, draft_estimate]
+TOOLS = [save_reading, save_equipment, add_note, flag_safety_stop, call_supervisor, ask_senior_expert, draft_estimate]
 
 
 # ---------------------------------------------------------------- safety watcher
@@ -303,6 +338,7 @@ async def entrypoint(ctx: JobContext) -> None:
         role = getattr(item, "role", None)
         text = clean_transcript(getattr(item, "text_content", None))
         if text and role in ("user", "assistant"):
+            st.recent.append(f"{'Technician' if role == 'user' else 'Assistant'}: {text}")
             backend.event("question" if role == "user" else "answer", {"text": text}, actor="tech" if role == "user" else "ai")
 
     await session.start(

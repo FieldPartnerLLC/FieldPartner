@@ -319,6 +319,12 @@ final class VisitController: ObservableObject {
         notify(.tool, "Estimate draft ready", (data["repair"] as? String) ?? "")
       case "add_note":
         notify(.tool, "Note saved", (data["text"] as? String) ?? "")
+      case "senior_expert":
+        switch data["status"] as? String {
+        case "asking": notify(.info, "Checking with the senior expert", (data["question"] as? String) ?? "")
+        case "answered": notify(.tool, "Senior expert", (data["answer"] as? String) ?? "")
+        default: notify(.info, "Senior expert not available", "Using general guidance.")
+        }
       default: break
       }
     case "escalation":

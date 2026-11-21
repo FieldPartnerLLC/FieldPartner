@@ -12,6 +12,7 @@ import {
   buildReport,
   endEscalation,
   endVisit,
+  proposeLessons,
   recordConsent,
   recordEvents,
   requestEscalation,
@@ -181,7 +182,10 @@ export async function visitRoutes(app: FastifyInstance) {
       .parse(req.body ?? {});
     const report = (body.report ?? visit.report) as VisitReport | null;
     if (!report) throw new HttpError(409, "no_report", "The report is not ready yet.");
-    return approveReport(visit, report, { sms: body.sendSms, email: body.sendEmail });
+    const result = await approveReport(visit, report, { sms: body.sendSms, email: body.sendEmail });
+    // Claude proposes lessons from this visit in the background; an expert approves them later.
+    proposeLessons(visit.id).catch(() => {});
+    return result;
   });
 
   /** Live board, history and the review queue for supervisors. */

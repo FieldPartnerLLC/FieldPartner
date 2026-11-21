@@ -33,6 +33,12 @@ const schema = z.object({
   GOOGLE_API_KEY: z.string().optional(),
   REPORT_MODEL: z.string().default("gemini-3.5-flash"),
 
+  // Claude: the "senior expert" during visits, report drafting and lesson writing.
+  ANTHROPIC_API_KEY: z.string().optional(),
+  ANTHROPIC_BASE_URL: z.string().default("https://api.anthropic.com"),
+  CLAUDE_MODEL: z.string().default("claude-sonnet-5-5"),
+  CLAUDE_REPORT_MODEL: z.string().default("claude-sonnet-5-5"),
+
   TWILIO_ACCOUNT_SID: z.string().optional(),
   TWILIO_AUTH_TOKEN: z.string().optional(),
   TWILIO_SMS_FROM: z.string().optional(),
@@ -78,6 +84,7 @@ export const features = {
   livekit: () => Boolean(config().LIVEKIT_URL && config().LIVEKIT_API_KEY && config().LIVEKIT_API_SECRET),
   s3: () => Boolean(config().S3_BUCKET),
   gemini: () => Boolean(config().GOOGLE_API_KEY),
+  claude: () => Boolean(config().ANTHROPIC_API_KEY),
   twilio: () => Boolean(config().TWILIO_ACCOUNT_SID && config().TWILIO_AUTH_TOKEN),
   smtp: () => Boolean(config().SMTP_HOST),
 };

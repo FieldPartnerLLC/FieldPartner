@@ -16,7 +16,23 @@ Secrets (API keys, passwords, tokens) never go in this file, in GitHub, or in ch
 
 ## 1. What FieldPartner is
 
-A technician wears Meta AI glasses on the job. The phone app sends the glasses' video and the technician's voice to an AI partner (Google Gemini). The AI can see the work and answer spoken questions. It watches for hazards and drafts the service report when the visit ends. A human expert can join a live visit from a web portal when the AI is not enough.
+A technician wears Meta AI glasses on the job. The phone app sends the glasses' video and the technician's voice to an AI partner. A human expert can join a live visit from a web portal when the AI is not enough.
+
+Two AI models work together:
+
+| Model | Job | Why this one |
+|---|---|---|
+| Google Gemini (Live) | The voice in the technician's ear. Sees the camera, listens, talks back in real time, and watches for hazards. | It has a real-time voice and video mode. |
+| Anthropic Claude | The senior expert. For hard questions (error codes, wiring, symptoms the first checks did not explain, or "second opinion"), Gemini says "Checking with the senior expert" and sends the question, the current camera frame and the visit so far to Claude, then speaks Claude's answer. Claude also drafts the service report and writes lessons from each visit. | More careful reasoning, used where accuracy matters most. |
+
+**How it gets smarter every week:**
+
+1. **Trade skills.** There is one file per trade in `shared/skills/<trade>/SKILL.md`, in the Agent Skills format. Each one holds the trade's playbook. Claude reads the skill for the job's trade before it answers. Edit these in plain English; changes go live on the next `git push`.
+2. **Lessons.** After a technician approves a visit report, Claude writes the reusable fix: equipment, symptom, error code, cause, fix and parts.
+3. **Expert approval.** An expert approves, corrects or rejects each lesson in the portal under **Lessons**. Experts can also add their own. Nothing is used until it is approved.
+4. **Used on the next job.** Approved lessons that match the brand, model, error code or symptom go to Claude with the next similar question. Claude says "on past jobs" when it uses one.
+
+Without a Claude key, everything still works: Gemini answers on its own and drafts reports.
 
 ### The six parts
 
@@ -51,7 +67,8 @@ Glasses --Bluetooth--> Phone app --HTTPS--> Backend API (Render) <--> Postgres (
 | GitHub | https://github.com/FieldPartnerLLC/FieldPartner | Stores the code. Render deploys from it. | $0 (private repo) |
 | Render | https://dashboard.render.com | Hosts the backend API, AI agent, database and portal | About $40.50 (section 6) |
 | LiveKit Cloud | https://cloud.livekit.io | Real-time audio and video rooms between phone, AI agent and expert | Usage based. Free tier to start. |
-| Google AI Studio (Gemini) | https://aistudio.google.com/apikey | The AI model that sees, listens, talks and writes reports | Usage based. Billing must be on. |
+| Google AI Studio (Gemini) | https://aistudio.google.com/apikey | The live AI that sees, listens and talks during visits | Usage based. Billing must be on. |
+| Anthropic Console (Claude) | https://console.anthropic.com/settings/keys | The senior expert, report drafting and lessons | Usage based. About $0.01 to $0.05 per question or report. |
 | Gmail (App Password) | https://myaccount.google.com/apppasswords | Sends invite emails and expert pages from a Gmail account | $0 |
 | Meta Wearables Developer Center | https://wearables.developer.meta.com | Registers the app with Meta so glasses work without Developer Mode (needed before Play Store) | $0 |
 | Meta AI app | https://play.google.com/store/apps/details?id=com.facebook.stella | Pairs and manages the glasses on the phone. FieldPartner connects through it. | $0 |
@@ -70,6 +87,7 @@ Glasses --Bluetooth--> Phone app --HTTPS--> Backend API (Render) <--> Postgres (
 | Portal: create a company | https://fieldpartner-portal.onrender.com/signup |
 | Portal: Team and invites | https://fieldpartner-portal.onrender.com/team |
 | Portal: join with an invite (experts) | https://fieldpartner-portal.onrender.com/join |
+| Portal: Lessons (knowledge base review) | https://fieldpartner-portal.onrender.com/lessons |
 | LiveKit webhook (set in LiveKit) | https://fieldpartner-api.onrender.com/livekit/webhook |
 
 ### Render service pages
@@ -82,7 +100,7 @@ Glasses --Bluetooth--> Phone app --HTTPS--> Backend API (Render) <--> Postgres (
 | Blueprint "fieldpartner" | https://dashboard.render.com/blueprints | | |
 
 A healthy `/healthz` looks like this:
-`{"ok":true,"db":"postgres","storage":"local","livekit":true,"gemini":true,"twilio":false,"email":true}`
+`{"ok":true,"db":"postgres","storage":"local","livekit":true,"gemini":true,"claude":true,"twilio":false,"email":true}`
 
 ---
 
@@ -125,6 +143,7 @@ open -e config.env           # fill in the 4 values below, save, close
 |---|---|
 | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | https://cloud.livekit.io > project **MetaAISmartGlasses** (the Mac test project) > Settings > API Keys |
 | `GOOGLE_API_KEY` | https://aistudio.google.com/apikey > Create API key. Billing must be on for the project. |
+| `ANTHROPIC_API_KEY` (optional) | https://console.anthropic.com/settings/keys > Create Key. Add a line `ANTHROPIC_API_KEY=` if your `config.env` doesn't have one. |
 
 `setup-mac.sh` fills in `JWT_SECRET`, `AGENT_SERVICE_TOKEN`, `PUBLIC_API_URL` and `PORTAL_URL` automatically. `config.env` is listed in `.gitignore`, so it never goes to GitHub.
 
@@ -242,6 +261,17 @@ Ignore LiveKit's **Deploy your first agent** button. The agent runs on Render, s
 2. Turn on billing for that Google Cloud project, or the key gets rate limited.
 3. The same key is used on the Mac (`config.env`) and on Render (`GOOGLE_API_KEY` on both the API and the agent).
 
+### 6.3b Anthropic Claude
+
+**Purpose:** the senior expert during visits, report drafting, and lessons.
+
+1. Go to https://console.anthropic.com and sign up. Add billing under Settings > Billing.
+2. Go to https://console.anthropic.com/settings/keys > **Create Key**, named `FieldPartner`.
+3. Paste it on Render: **fieldpartner-api** > Environment > `ANTHROPIC_API_KEY` > **Save, rebuild, and deploy**.
+   It goes on the API only. The agent reaches Claude through the API, so the key lives in one place.
+4. `/healthz` then shows `"claude":true`.
+5. Model: `CLAUDE_MODEL` (default `claude-sonnet-5-5`), plus `CLAUDE_REPORT_MODEL` for reports and lessons. Change them on the same page.
+
 ### 6.4 Render
 
 **Purpose:** hosts everything that must be online all the time.
@@ -276,6 +306,7 @@ Ignore LiveKit's **Deploy your first agent** button. The agent runs on Render, s
    |---|---|---|
    | api and agent | `LIVEKIT_URL`, `LIVEKIT_API_KEY`, `LIVEKIT_API_SECRET` | From the FieldPartner LiveKit project |
    | api and agent | `GOOGLE_API_KEY` | Gemini key |
+   | api | `ANTHROPIC_API_KEY` | Claude key (section 6.3b) |
    | api | `PUBLIC_API_URL` | `https://fieldpartner-api.onrender.com` |
    | api | `PORTAL_URL` | `https://fieldpartner-portal.onrender.com` |
    | api | `TWILIO_*` (4 values) | Leave empty for now |
@@ -329,7 +360,7 @@ Until then, expert pages show in the portal and go by email.
 2. On the Team page (https://fieldpartner-portal.onrender.com/team), click **Invite a person**:
    - Enter the name and email, and choose the role (technician, expert or admin).
    - The invite email goes out automatically. The page also offers **Copy message** and **Open in WhatsApp**.
-   - Codes are good for 7 days. Re-inviting the same email replaces the old code.
+   - Codes are good for 14 days (`INVITE_DAYS`). Re-inviting the same email replaces the old code.
 3. The technician installs the app, taps **I have an invite code**, types the code and sets a password. The app then walks them through setup:
    - permissions
    - choosing glasses or the phone camera
@@ -353,7 +384,7 @@ There are two builds, both in the FieldPartner folder:
 | `FieldPartner-android-online.apk` | `https://fieldpartner-api.onrender.com` | Anyone, anywhere |
 | `FieldPartner-android-offline.apk` | Your Mac's Wi-Fi address | Testing against `start-local.sh` on the same Wi-Fi |
 
-Current version: **1.1.0** (version code 2). It installs over older versions and keeps the sign-in.
+Current version: **1.2.0** (version code 3). It installs over older versions and keeps the sign-in. When the senior expert answers, the answer also shows on the phone screen.
 
 - **Installing on a phone:** send the APK by Google Drive, email or USB, open it on the phone, and allow installs from that app when Android asks.
 - **Sharing with many testers:** upload the APK to Google Drive, set sharing to **Anyone with the link**, and send the link. For more than a handful of testers, use Firebase App Distribution or Play Store internal testing.
@@ -407,7 +438,9 @@ Also before submitting, turn off plain http:
 | Render Blueprint says "a few issues" | No card on the workspace. Add one under Billing, then retry. |
 | Agent restarts every 30 seconds | Out of memory. It must be on the Standard plan with `AGENT_EXECUTOR=thread` (already in `render.yaml`). |
 | `/healthz` shows `"email":false` | `SMTP_HOST` is missing or misspelled on fieldpartner-api. |
-| `/healthz` shows `"livekit":false` or `"gemini":false` | The key is missing or wrong on fieldpartner-api. |
+| `/healthz` shows `"livekit":false`, `"gemini":false` or `"claude":false` | The key is missing or wrong on fieldpartner-api. |
+| AI says "senior expert not reachable" | `ANTHROPIC_API_KEY` missing or out of credit. Check fieldpartner-api logs for "consult failed". Gemini keeps answering on its own. |
+| No lessons appear under Lessons | Lessons are proposed only after a report is approved, and only when there was a real fault to learn from. Needs `ANTHROPIC_API_KEY`. |
 | App says it can't reach the server | Live build: check `/healthz`. Offline build: the phone must be on the same Wi-Fi as the Mac and `start-local.sh` must be running. |
 | Visit starts but the AI never answers | Agent logs should show `registered worker`. The LiveKit keys on the API and the agent must be from the same project. |
 | A live visit was answered by the Mac's agent | The Mac and Render are using the same LiveKit project. Keep the Mac on MetaAISmartGlasses. |
@@ -428,4 +461,5 @@ Also before submitting, turn off plain http:
 | `docs/PRODUCTION.md` | Production hardening notes |
 | `CLAUDE.md` | Notes for working on the code with Claude Code |
 | `render.yaml` | The Render Blueprint (all live services) |
+| `shared/skills/` | Trade skills (one `SKILL.md` per trade) that Claude reads |
 | `config.env.example` | Template for the Mac's `config.env` |
