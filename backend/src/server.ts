@@ -59,6 +59,8 @@ export async function buildServer(opts: { logger?: boolean } = {}): Promise<Fast
     claude: features.claude(),
     twilio: features.twilio(),
     email: features.smtp(),
+    // Render sets RENDER_GIT_COMMIT; CI's live check compares it with the commit it just tested.
+    commit: process.env.RENDER_GIT_COMMIT ?? process.env.GIT_COMMIT ?? null,
   }));
 
   await app.register(authRoutes);

@@ -1,0 +1,163 @@
+# One pipeline for the whole monorepo.
+# Every push and pull request: test the backend, AI agent and portal, build and test the Android app
+# (unit tests, screen tests, then a smoke run on the latest Android emulator), and build and test the
+# iPhone app on the latest iPhone simulator.
+# On main, when everything passes: publish the APK as the "latest" GitHub release. Render deploys the
+# live server only after these checks pass (autoDeployTrigger: checksPass in render.yaml).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  LIVE_API: ${{ vars.FP_API_BASE_URL || 'https://fieldpartner-api.onrender.com' }}
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults: { run: { working-directory: backend } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: backend/package-lock.json }
+      - run: npm ci
+      - run: npx tsc -p tsconfig.json --noEmit
+      - run: npm test
+
+  agent:
+    name: AI agent tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults: { run: { working-directory: agent } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12", cache: pip, cache-dependency-path: agent/requirements*.txt }
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -q
+
+  portal:
+    name: Portal build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults: { run: { working-directory: portal } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: portal/package-lock.json }
+      - run: npm ci
+      - run: npm run build
+        env: { VITE_API_URL: "${{ env.LIVE_API }}" }
+
+  android:
+    name: Android build and tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: "17" }
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Point the app at the live server
+        run: |
+          {
+            echo "sdk.dir=$ANDROID_HOME"
+            echo "fp_api_base_url=$LIVE_API"
+            echo "fp_version_code=$((1000 + GITHUB_RUN_NUMBER))"
+          } > android/local.properties
+      - name: Unit, API and screen tests
+        working-directory: android
+        run: ./gradlew --no-daemon :app:testDebugUnitTest
+      - name: Build APK (all phone CPUs plus the emulator's)
+        working-directory: android
+        run: ./gradlew --no-daemon :app:assembleDebug
+      - run: cp android/app/build/outputs/apk/debug/app-debug.apk FieldPartner-android.apk
+      - uses: actions/upload-artifact@v4
+        with: { name: android-apk, path: FieldPartner-android.apk, retention-days: 30 }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: android-screens, path: android/app/build/screens/, if-no-files-found: ignore }
+
+  android-emulator:
+    name: Android emulator smoke test (Pixel, latest Android)
+    needs: android
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: android-apk }
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_8
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back emulated
+          script: bash scripts/ci/android-smoke.sh FieldPartner-android.apk
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: android-emulator, path: ci-out/, if-no-files-found: ignore }
+
+  ios:
+    name: iPhone build and tests (latest iPhone simulator)
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show Xcode
+        run: xcodebuild -version
+      - name: Core tests (swift test)
+        working-directory: ios
+        run: swift test
+      - name: Generate the Xcode project
+        working-directory: ios
+        run: |
+          brew install xcodegen
+          # Simulator builds need no signing team. "$()" keeps xcconfig from reading // as a comment.
+          {
+            echo "DEVELOPMENT_TEAM ="
+            echo "FP_BUNDLE_ID = com.ironrim.fieldpartner"
+            echo "FP_API_BASE_URL = ${LIVE_API%%://*}:/\$()/${LIVE_API#*://}"
+            echo "META_APP_ID = 0"
+            echo "CLIENT_TOKEN = 0"
+          } > Config/Local.xcconfig
+          cat Config/Local.xcconfig
+          xcodegen generate
+      - name: Build, unit test and launch on the newest iPhone simulator
+        run: bash scripts/ci/ios-smoke.sh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: ios-simulator, path: ci-out/, if-no-files-found: ignore }
+
+  release:
+    name: Publish the latest APK
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [backend, agent, portal, android, android-emulator, ios]
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: android-apk }
+      - name: Replace the "latest" release
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          gh release delete latest --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag 2>/dev/null || true
+          gh release create latest FieldPartner-android.apk --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+            --title "FieldPartner latest (build ${GITHUB_RUN_NUMBER})" \
+            --notes "Built from ${GITHUB_SHA::7}. All backend, agent, portal, Android, emulator and iPhone checks passed. Connects to ${LIVE_API}."

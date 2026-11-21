@@ -1,0 +1,25 @@
+# Checks the live server every hour and after each successful CI run on main:
+# health of every connected service, that Render is running the commit CI just passed, and the portal.
+name: Live check
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  live:
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      LIVE_API: ${{ vars.FP_API_BASE_URL || 'https://fieldpartner-api.onrender.com' }}
+      LIVE_PORTAL: ${{ vars.FP_PORTAL_URL || 'https://fieldpartner-portal.onrender.com' }}
+      EXPECT_COMMIT: ${{ github.event.workflow_run.head_sha || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/ci/live-check.sh

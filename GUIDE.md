@@ -104,6 +104,28 @@ A healthy `/healthz` looks like this:
 
 ---
 
+## 2b. The single pipeline: develop, test, go live
+
+Everything lives in one repo, and one GitHub Actions pipeline (`.github/workflows/ci.yml`) takes it from a push to production. Nothing needs to be installed on your Mac to test the phone apps; GitHub's machines run the emulators.
+
+| Step | What runs | Where |
+|---|---|---|
+| 1 | Backend type check and 57 tests | GitHub, Linux |
+| 2 | AI agent tests | GitHub, Linux |
+| 3 | Portal build | GitHub, Linux |
+| 4 | Android unit, API and screen tests, then the APK build (live server built in) | GitHub, Linux |
+| 5 | The APK installed and opened on the latest Pixel emulator (Android 15). It fails on a crash or if sign-in does not appear | GitHub, Linux with KVM |
+| 6 | iPhone core tests, Xcode build, unit tests, then the app installed and opened on the newest iPhone simulator | GitHub, macOS (latest Xcode) |
+| 7 | On main, when 1 to 6 pass: the APK published as the **latest** release, at https://github.com/FieldPartnerLLC/FieldPartner/releases/tag/latest | GitHub |
+| 8 | Render deploys the API, agent and portal, but only after all checks pass (`autoDeployTrigger: checksPass` in `render.yaml`) | Render |
+| 9 | Live check: waits until Render runs the new commit, then checks health and the portal. It also runs every hour (`.github/workflows/live-check.yml`) | GitHub |
+
+Screenshots from the emulator and simulator are saved on each run under Actions > the run > Artifacts.
+
+To ship a change: `make ship m="what changed"`, then watch https://github.com/FieldPartnerLLC/FieldPartner/actions. Run `make` to see every command.
+
+Costs: GitHub gives private organization repos 2,000 Actions minutes a month for free. macOS minutes count 10 times. One full run uses about 15 Linux minutes plus about 20 macOS minutes (200 counted), so about 9 full runs a month fit in the free tier. Beyond that, GitHub bills per minute: https://github.com/pricing/calculator.
+
 ## 3. One-time setup on your Mac (for local testing)
 
 ### Tools to install
@@ -190,6 +212,7 @@ Accounts on the Mac and accounts on the live server are separate. A company made
 | `cd backend && npm test` | Backend tests |
 | `cd agent && .venv/bin/python -m pytest -q` | AI agent tests |
 | `curl https://fieldpartner-api.onrender.com/healthz` | Checks the live server |
+| `make` | Lists the one-line commands: `make dev`, `make test`, `make apk`, `make ios`, `make live`, `make ship m="..."` |
 
 ### Saving changes to GitHub (this also updates the live server)
 
@@ -200,7 +223,7 @@ git commit -m "describe the change"
 git push
 ```
 
-Render rebuilds and redeploys the API, agent and portal automatically within 3 to 10 minutes of a push.
+GitHub Actions tests everything (section 2b). When it passes, Render redeploys the API, agent and portal, usually 15 to 25 minutes after the push. If a check fails, nothing is deployed and the live system stays as it was.
 
 ---
 

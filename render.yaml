@@ -15,7 +15,7 @@ services:
     dockerContext: .
     plan: starter
     healthCheckPath: /healthz
-    autoDeploy: true
+    autoDeployTrigger: checksPass # deploy only after GitHub CI passes on main
     disk:
       name: media
       mountPath: /data
@@ -62,7 +62,7 @@ services:
     dockerfilePath: ./agent/Dockerfile
     dockerContext: ./agent
     plan: standard # 2 GB. Starter (512 MB) runs out of memory: each live visit needs about 430 MB on top of 210 MB base
-    autoDeploy: true
+    autoDeployTrigger: checksPass # deploy only after GitHub CI passes on main
     envVars:
       - key: AGENT_EXECUTOR # thread = all visits share one process (about 3 at once in 2 GB)
         value: thread
@@ -84,6 +84,7 @@ services:
   - type: web
     name: fieldpartner-portal
     runtime: static
+    autoDeployTrigger: checksPass
     rootDir: portal
     buildCommand: npm ci && npm run build
     staticPublishPath: dist
