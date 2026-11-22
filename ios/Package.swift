@@ -6,6 +6,8 @@ import PackageDescription
 
 let package = Package(
   name: "FieldPartnerCore",
+  // async URLSession APIs need macOS 12+; ignored on Linux. Matches the app's iOS 17.2 target.
+  platforms: [.macOS(.v13), .iOS(.v17)],
   targets: [
     .target(
       name: "FieldPartner",
