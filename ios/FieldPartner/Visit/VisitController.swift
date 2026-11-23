@@ -143,6 +143,9 @@ final class VisitController: ObservableObject {
 
     transcriptEngine.onPartial = { [weak self] text in Task { @MainActor in self?.handlePartial(text) } }
     transcriptEngine.onFinal = { [weak self] text in Task { @MainActor in self?.handleFinal(text) } }
+    // Recognition hints: the company's own wake phrase (and the variants the parser accepts)
+    // are rare words, so the recognizer otherwise mishears them.
+    transcriptEngine.setHints([parser.wakePhrase, parser.assistantName] + parser.wakeVariants)
     transcriptEngine.start(locale: settings.language)
 
     videoRecorder.onSegmentFinished = { [weak self] seg in
