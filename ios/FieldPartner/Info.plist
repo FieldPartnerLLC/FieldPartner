@@ -35,6 +35,11 @@
 	</array>
 	<key>FPAPIBaseURL</key>
 	<string>$(FP_API_BASE_URL)</string>
+	<!-- Lets the Meta Wearables SDK open the Meta AI app for registration and camera permission. -->
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>fb-viewapp</string>
+	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
 	<false/>
 	<!-- Meta Wearables Device Access Toolkit -->

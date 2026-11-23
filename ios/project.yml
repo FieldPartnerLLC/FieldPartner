@@ -22,6 +22,7 @@ targets:
       - path: FieldPartner
         excludes:
           - "**/*.md"
+          - "**/*.entitlements"
     dependencies:
       - package: MWDAT
         product: MWDATCore
@@ -37,6 +38,9 @@ targets:
         PRODUCT_NAME: FieldPartner
         INFOPLIST_FILE: FieldPartner/Info.plist
         CODE_SIGN_STYLE: Automatic
+        # Glasses Wi-Fi video needs the Hotspot entitlement, which only paid Apple teams can sign.
+        # Set FP_ENTITLEMENTS in Config/Local.xcconfig once you have the $99 account; empty for a free team.
+        CODE_SIGN_ENTITLEMENTS: $(FP_ENTITLEMENTS)
         SWIFT_VERSION: "5.0"
         SWIFT_STRICT_CONCURRENCY: minimal
         TARGETED_DEVICE_FAMILY: "1"
