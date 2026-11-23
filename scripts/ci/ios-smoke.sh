@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Picks the newest iPhone simulator on this Mac, builds the app, runs its unit tests, then installs
-# and opens it and fails if it is not running after 15 seconds. Screenshot and logs go to ci-out/.
+# Picks the newest iPhone simulator on this Mac, builds the app, runs its unit and UI tests (UI test
+# screenshots go to ci-out/ui-screenshots), then installs and opens it and fails if it is not running after 15 seconds.
 set -euo pipefail
 mkdir -p ci-out
 read -r UDID NAME < <(xcrun simctl list devices available -j | python3 -c '
@@ -25,8 +25,14 @@ if not best:
 echo "Using $NAME ($UDID)"
 xcodebuild -project ios/FieldPartner.xcodeproj -scheme FieldPartner \
   -destination "id=$UDID" -derivedDataPath build/ios \
+  -resultBundlePath build/ios/tests.xcresult \
   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
   test 2>&1 | tee ci-out/xcodebuild.log | grep -E "error:|warning: unre|Test Suite|Executed|BUILD|\*\*" || true
+# UI test screenshots (login and invite screens) go to ci-out/ui-screenshots.
+mkdir -p ci-out/ui-screenshots
+xcrun xcresulttool export attachments --path build/ios/tests.xcresult --output-path ci-out/ui-screenshots >/dev/null 2>&1 \
+  || echo "note: could not export UI test screenshots"
+ls ci-out/ui-screenshots 2>/dev/null | head -20 || true
 grep -q "TEST SUCCEEDED\|\*\* TEST SUCCEEDED \*\*" ci-out/xcodebuild.log || { grep -E "error:" ci-out/xcodebuild.log | head -40; echo "FAIL: build or tests failed"; exit 1; }
 APP=$(ls -d build/ios/Build/Products/Debug-iphonesimulator/FieldPartner.app)
 xcrun simctl boot "$UDID" 2>/dev/null || true

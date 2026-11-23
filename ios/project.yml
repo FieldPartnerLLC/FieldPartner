@@ -58,11 +58,23 @@ targets:
       base:
         SWIFT_VERSION: "5.0"
         GENERATE_INFOPLIST_FILE: YES
+  FieldPartnerUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [FieldPartnerUITests]
+    dependencies:
+      - target: FieldPartner
+    settings:
+      base:
+        SWIFT_VERSION: "5.0"
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: FieldPartner
 schemes:
   FieldPartner:
     build:
       targets:
         FieldPartner: all
         FieldPartnerTests: [test]
+        FieldPartnerUITests: [test]
     test:
-      targets: [FieldPartnerTests]
+      targets: [FieldPartnerTests, FieldPartnerUITests]
