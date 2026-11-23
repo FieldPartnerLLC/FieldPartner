@@ -23,7 +23,10 @@ final class LiveSession: NSObject, ObservableObject {
   @Published private(set) var state: State = .idle
   @Published private(set) var assistant: AssistantState = .unknown
   @Published private(set) var agentPresent = false
-  @Published private(set) var expertPresent = false
+  @Published private(set) var expertPresent = false {
+    // Boost the glasses video while an expert watches; drop back to save data when they leave.
+    didSet { if expertPresent != oldValue { Task { [weak self] in await self?.applyVideoProfileIfNeeded() } } }
+  }
   @Published private(set) var expertName: String?
   @Published private(set) var caption: (text: String, fromAI: Bool)?
   @Published private(set) var localVideoTrack: LocalVideoTrack?
@@ -41,6 +44,12 @@ final class LiveSession: NSObject, ObservableObject {
   private let capturerBox = CapturerBox()
   private var pendingTrack: LocalVideoTrack?
   private var publishing = false
+  /// The glasses track (nil in phone-camera mode) and the profile it is published with now.
+  private var glassesTrack: LocalVideoTrack?
+  private var publishedProfile: LiveVideoProfile?
+  private var switchingProfile = false
+  /// Privacy pause or no camera consent: nothing is published or republished while true.
+  private var videoMuted = false
   private var usingPhoneCamera = false
   private var handlersRegistered = false
   private var captionClear: Task<Void, Never>?
@@ -71,6 +80,7 @@ final class LiveSession: NSObject, ObservableObject {
         capturerBox.capturer = track.capturer as? BufferCapturer
         try await track.start()
         localVideoTrack = track
+        glassesTrack = track
         pendingTrack = track
         // Publishing waits for the first frame: the buffer track needs real dimensions,
         // and the first frame over Bluetooth can take several seconds.
@@ -79,6 +89,7 @@ final class LiveSession: NSObject, ObservableObject {
       await registerHandlers()
       state = .connected
       refreshParticipants()
+      await applyVideoProfileIfNeeded()
     } catch {
       state = .failed(error.localizedDescription)
       await room.disconnect()
@@ -89,6 +100,10 @@ final class LiveSession: NSObject, ObservableObject {
     capturerBox.capturer = nil
     pendingTrack = nil
     localVideoTrack = nil
+    glassesTrack = nil
+    publishedProfile = nil
+    switchingProfile = false
+    videoMuted = false
     await room.disconnect()
     state = .idle
     agentPresent = false
@@ -122,28 +137,67 @@ final class LiveSession: NSObject, ObservableObject {
   }
 
   private func publishPending() async {
-    guard let track = pendingTrack, state == .connected || state == .connecting, !publishing else { return }
+    // While muted the track stays unpublished, so the AI and expert get no video at all.
+    guard let track = pendingTrack, state == .connected || state == .connecting, !publishing, !videoMuted else { return }
     publishing = true
-    defer { publishing = false }
+    let profile = LiveVideoProfile.forRoom(expertPresent: expertPresent)
     do {
-      _ = try await room.localParticipant.publish(
-        videoTrack: track,
-        options: VideoPublishOptions(
-          encoding: VideoEncoding(maxBitrate: 1_000_000, maxFps: 5),  // AI samples 1 fps; keeps cellular use near 0.45 GB per visit hour
-          simulcast: false,
-          degradationPreference: .maintainResolution))
+      _ = try await room.localParticipant.publish(videoTrack: track, options: Self.publishOptions(profile))
       pendingTrack = nil
+      publishedProfile = profile
     } catch {
       NSLog("[Live] video publish failed, retrying on next frame: %@", error.localizedDescription)
       capturerBox.sawFrame = false
     }
+    publishing = false
+    // An expert may have joined or left while this publish ran.
+    await applyVideoProfileIfNeeded()
+  }
+
+  private static func publishOptions(_ profile: LiveVideoProfile) -> VideoPublishOptions {
+    VideoPublishOptions(
+      encoding: VideoEncoding(maxBitrate: profile.maxBitrate, maxFps: profile.maxFps),
+      simulcast: false,
+      degradationPreference: .maintainResolution)
+  }
+
+  /// LiveKit has no public call to change a published track's encoding, so a profile change
+  /// unpublishes the glasses track (which stops it), restarts it, and lets the next glasses frame
+  /// publish it again with the new profile (`publishPending`). The AI and expert see a short gap.
+  private func applyVideoProfileIfNeeded() async {
+    guard !usingPhoneCamera, !switchingProfile, !publishing, !videoMuted, state == .connected,
+      let track = glassesTrack, let current = publishedProfile
+    else { return }
+    guard LiveVideoProfile.forRoom(expertPresent: expertPresent) != current,
+      let publication = room.localParticipant.localVideoTracks.first(where: { $0.track === track })
+    else { return }
+    switchingProfile = true
+    defer { switchingProfile = false }
+    do {
+      try await room.localParticipant.unpublish(publication: publication)
+    } catch {
+      NSLog("[Live] video unpublish for profile switch failed: %@", error.localizedDescription)
+      return
+    }
+    publishedProfile = nil
+    do { try await track.start() } catch {
+      NSLog("[Live] video restart after unpublish failed: %@", error.localizedDescription)
+    }
+    // The next glasses frame publishes the track again with the profile the room needs then.
+    capturerBox.sawFrame = false
+    pendingTrack = track
   }
 
   /// Privacy pause: stop sending video to the room (AI and expert see nothing).
   func setVideoMuted(_ muted: Bool) async {
+    videoMuted = muted
     for pub in room.localParticipant.localVideoTracks {
       if muted { try? await pub.mute() } else { try? await pub.unmute() }
     }
+    guard !muted else { return }
+    // A frame that arrived while muted could not publish; publish now that video is allowed.
+    if capturerBox.sawFrame { await publishPending() }
+    await applyVideoProfileIfNeeded()
   }
 
   func setMicMuted(_ muted: Bool) async {
@@ -230,6 +284,7 @@ extension LiveSession: RoomDelegate {
     Task { @MainActor in
       self.state = .connected
       self.refreshParticipants()
+      await self.applyVideoProfileIfNeeded()
     }
   }
 
