@@ -129,7 +129,7 @@ final class LiveSession: NSObject, ObservableObject {
       _ = try await room.localParticipant.publish(
         videoTrack: track,
         options: VideoPublishOptions(
-          encoding: VideoEncoding(maxBitrate: 2_500_000, maxFps: 15),
+          encoding: VideoEncoding(maxBitrate: 1_000_000, maxFps: 5),  // AI samples 1 fps; keeps cellular use near 0.45 GB per visit hour
           simulcast: false,
           degradationPreference: .maintainResolution))
       pendingTrack = nil

@@ -110,7 +110,7 @@ class LiveSession(private val app: Context) {
           track.startCapture()
           r.localParticipant.publishVideoTrack(
             track,
-            VideoTrackPublishOptions(name = "glasses", videoEncoding = VideoEncoding(2_500_000, 15), simulcast = false, source = Track.Source.CAMERA),
+            VideoTrackPublishOptions(name = "glasses", videoEncoding = VideoEncoding(1_000_000, 5) /* AI samples 1 fps; keeps cellular use near 0.45 GB per visit hour */, simulcast = false, source = Track.Source.CAMERA),
           )
           _ui.update { it.copy(localVideoTrack = track) }
         }
