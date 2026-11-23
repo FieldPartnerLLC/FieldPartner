@@ -23,6 +23,7 @@ import com.fieldpartner.app.core.ApiException
 import com.fieldpartner.app.core.CommandParser
 import com.fieldpartner.app.core.CompanyInfo
 import com.fieldpartner.app.core.ConsentBody
+import com.fieldpartner.app.core.ConsentLocationPolicy
 import com.fieldpartner.app.core.EventQueue
 import com.fieldpartner.app.core.Job
 import com.fieldpartner.app.core.Visit
@@ -33,7 +34,6 @@ import com.fieldpartner.app.record.VideoSegmentRecorder
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.UUID
-import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -204,6 +204,10 @@ class VisitController(private val app: FieldPartnerApp, val visit: Visit, val jo
       }
     }
     if (source != VideoSource.PHONE_CAMERA) glasses.startStreaming()
+
+    // Warm up a location fix while the tech walks to the door, so the consent signature is
+    // stamped with where the customer signed without a cold GPS wait.
+    scope.launch { freshLocation()?.let { warmFix = it to System.currentTimeMillis() } }
 
     transcriptEngine.onPartial = { text -> scope.launch { handlePartial(text) } }
     transcriptEngine.onFinal = { text -> scope.launch { handleFinal(text) } }
@@ -630,18 +634,38 @@ class VisitController(private val app: FieldPartnerApp, val visit: Visit, val jo
     return Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
   }
 
-  /** One-shot location for the consent record. Null quickly if denied or slow. */
+  /** Fix warmed up at visit start: coordinates and when they were taken (ms since epoch). */
+  @Volatile private var warmFix: Pair<Pair<Double, Double>, Long>? = null
+
+  private fun locationGranted(): Boolean =
+    app.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+      app.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+  /**
+   * Location for the consent record: the fix warmed up at visit start if recent, else a fresh fix
+   * within [ConsentLocationPolicy.MAX_WAIT_MS], else a recent last known location. Null if denied or
+   * unavailable; consent is saved either way.
+   */
   private suspend fun currentLocation(): Pair<Double, Double>? {
-    val granted =
-      app.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-        app.checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-    if (!granted) return null
+    if (!locationGranted()) return null
+    val now = System.currentTimeMillis()
+    warmFix?.let { (loc, at) -> if (ConsentLocationPolicy.isFresh(at, now)) return loc }
+    freshLocation()?.let {
+      warmFix = it to System.currentTimeMillis()
+      return it
+    }
+    return lastKnownLocation()
+  }
+
+  /** One fresh fix from the best enabled provider. Null quickly if denied or slow. */
+  private suspend fun freshLocation(): Pair<Double, Double>? {
+    if (!locationGranted()) return null
     val lm = app.getSystemService(LocationManager::class.java) ?: return null
     val provider =
       listOf(LocationManager.FUSED_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.GPS_PROVIDER).firstOrNull { runCatching { lm.isProviderEnabled(it) }.getOrDefault(false) }
         ?: return null
     return try {
-      withTimeoutOrNull(TimeUnit.SECONDS.toMillis(5)) {
+      withTimeoutOrNull(ConsentLocationPolicy.MAX_WAIT_MS) {
         suspendCancellableCoroutine { cont ->
           val signal = android.os.CancellationSignal()
           cont.invokeOnCancellation { signal.cancel() }
@@ -651,6 +675,21 @@ class VisitController(private val app: FieldPartnerApp, val visit: Visit, val jo
       }
     } catch (e: SecurityException) {
       Log.w("Visit", "location denied: ${e.message}")
+      null
+    }
+  }
+
+  /** Newest last known location from any provider, if it is recent enough to trust. */
+  private fun lastKnownLocation(): Pair<Double, Double>? {
+    val lm = app.getSystemService(LocationManager::class.java) ?: return null
+    return try {
+      val candidates =
+        listOf(LocationManager.FUSED_PROVIDER, LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER).mapNotNull { p ->
+          @Suppress("MissingPermission")
+          runCatching { lm.getLastKnownLocation(p) }.getOrNull()?.let { (it.latitude to it.longitude) to it.time }
+        }
+      ConsentLocationPolicy.pick(candidates, System.currentTimeMillis())
+    } catch (e: SecurityException) {
       null
     }
   }

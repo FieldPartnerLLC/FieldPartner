@@ -127,6 +127,9 @@ final class VisitController: ObservableObject {
     started = true
     _ = await AVAudioApplication.requestRecordPermission()
     _ = await TranscriptEngine.requestPermission()
+    // Ask for location now (first visit) and warm up a fix, so the consent signature at the
+    // door is stamped with where the customer signed without making them wait.
+    location.prewarm()
 
     // Glasses frames fan out to the live call and the recorder.
     glasses.onPixelBuffer = { [weak live] pb in live?.push(pb) }
@@ -527,34 +530,131 @@ final class VisitController: ObservableObject {
   }
 }
 
-/// One-shot location for the consent record. Returns nil quickly if denied or slow.
+/// Location for the consent record. `prewarm()` at visit start asks for permission (first
+/// visit) and gets a fix while the tech walks to the door; `current()` at signing uses that
+/// fix, or waits for permission and a fresh fix for at most ConsentLocationPolicy.maxWait
+/// seconds in total. Returns nil if denied, unavailable or slow: consent is saved anyway.
 final class OneShotLocation: NSObject, CLLocationManagerDelegate {
   private let manager = CLLocationManager()
-  private var continuation: CheckedContinuation<CLLocationCoordinate2D?, Never>?
+  private var lastFix: CLLocation?
+  private var fixWaiters: [Waiter<CLLocation?>] = []
+  private var authWaiters: [Waiter<Void>] = []
 
-  @MainActor
-  func current() async -> CLLocationCoordinate2D? {
-    manager.delegate = self
-    if manager.authorizationStatus == .notDetermined { manager.requestWhenInUseAuthorization() }
-    guard manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways else { return nil }
-    return await withCheckedContinuation { cont in
-      self.continuation = cont
-      manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
-      manager.requestLocation()
-      DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
-        self?.continuation?.resume(returning: nil)
-        self?.continuation = nil
-      }
+  /// Resumes its continuation exactly once, whichever comes first: the answer or the timeout.
+  private final class Waiter<T> {
+    var continuation: CheckedContinuation<T, Never>?
+    func resume(_ value: T) {
+      continuation?.resume(returning: value)
+      continuation = nil
     }
   }
 
+  override init() {
+    super.init()
+    manager.delegate = self
+    manager.desiredAccuracy = kCLLocationAccuracyHundredMeters
+  }
+
+  private var auth: LocationAuth {
+    switch manager.authorizationStatus {
+    case .notDetermined: return .notDetermined
+    case .authorizedAlways, .authorizedWhenInUse: return .authorized
+    default: return .denied
+    }
+  }
+
+  private var cachedFixAge: TimeInterval? { lastFix.map { -$0.timestamp.timeIntervalSinceNow } }
+
+  @MainActor
+  func prewarm() {
+    switch auth {
+    case .notDetermined: manager.requestWhenInUseAuthorization()  // the fix follows once allowed
+    case .authorized: if !ConsentLocationPolicy.isFresh(age: cachedFixAge) { manager.requestLocation() }
+    case .denied: break
+    }
+  }
+
+  @MainActor
+  func current() async -> CLLocationCoordinate2D? {
+    let deadline = Date().addingTimeInterval(ConsentLocationPolicy.maxWait)
+    var step = ConsentLocationPolicy.nextStep(auth: auth, cachedFixAge: cachedFixAge)
+    if step == .askPermission {
+      // First consent on this phone: show the prompt and wait for the answer instead of
+      // giving up at once (the old behavior saved the very first consent without GPS).
+      manager.requestWhenInUseAuthorization()
+      await waitForAuthorization(timeout: ConsentLocationPolicy.remaining(until: deadline))
+      step = ConsentLocationPolicy.nextStep(auth: auth, cachedFixAge: cachedFixAge)
+    }
+    switch step {
+    case .useCached:
+      return lastFix?.coordinate
+    case .requestFix:
+      return await requestFix(timeout: ConsentLocationPolicy.remaining(until: deadline))?.coordinate
+    case .askPermission, .skip:
+      return nil
+    }
+  }
+
+  @MainActor
+  private func waitForAuthorization(timeout: TimeInterval) async {
+    guard auth == .notDetermined, timeout > 0 else { return }
+    let waiter = Waiter<Void>()
+    await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
+      waiter.continuation = cont
+      authWaiters.append(waiter)
+      Task { @MainActor in
+        try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+        waiter.resume(())
+      }
+    }
+    authWaiters.removeAll { $0 === waiter }
+  }
+
+  @MainActor
+  private func requestFix(timeout: TimeInterval) async -> CLLocation? {
+    guard timeout > 0 else { return nil }
+    let waiter = Waiter<CLLocation?>()
+    let fix = await withCheckedContinuation { (cont: CheckedContinuation<CLLocation?, Never>) in
+      waiter.continuation = cont
+      fixWaiters.append(waiter)
+      manager.requestLocation()
+      Task { @MainActor in
+        try? await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
+        waiter.resume(nil)
+      }
+    }
+    fixWaiters.removeAll { $0 === waiter }
+    return fix
+  }
+
+  @MainActor
+  private func handleFix(_ location: CLLocation?) {
+    if let location { lastFix = location }
+    let waiters = fixWaiters
+    fixWaiters.removeAll()
+    waiters.forEach { $0.resume(location) }
+  }
+
+  @MainActor
+  private func handleAuthorizationChange() {
+    guard auth != .notDetermined else { return }
+    let waiters = authWaiters
+    authWaiters.removeAll()
+    waiters.forEach { $0.resume(()) }
+    // Permission was just granted (often during prewarm): get the fix ready for signing.
+    if auth == .authorized, !ConsentLocationPolicy.isFresh(age: cachedFixAge) { manager.requestLocation() }
+  }
+
   func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
-    continuation?.resume(returning: locations.last?.coordinate)
-    continuation = nil
+    let fix = locations.last
+    Task { @MainActor in self.handleFix(fix) }
   }
 
   func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
-    continuation?.resume(returning: nil)
-    continuation = nil
+    Task { @MainActor in self.handleFix(nil) }
+  }
+
+  func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+    Task { @MainActor in self.handleAuthorizationChange() }
   }
 }
