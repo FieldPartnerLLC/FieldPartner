@@ -82,6 +82,23 @@ class CommandParserTest {
     assertNull(short.parse("hey maxwell come here"))
   }
 
+  @Test fun talkAboutADispatchDoesNotWake() {
+    assertNull(p.parse("We sent a dispatch out to the site yesterday"))
+    assertNull(p.parse("I said okay, dispatch will call you back"))
+    assertNull(p.parse("Hey, dispatching the truck now"))
+  }
+
+  @Test fun everydayWordVariantsWorkAtTheStart() {
+    assertEquals(VoiceCommand.Ask("read the plate"), p.parse("Okay dispatch, read the plate"))
+    assertEquals(VoiceCommand.Ask("what is this code"), p.parse("A dispatch what is this code"))
+  }
+
+  @Test fun wakePhraseNeedsAWordBoundaryAfterIt() =
+    assertNull(CommandParser("hey max").parse("hey maxwell is here"))
+
+  @Test fun laterOccurrenceIsFound() =
+    assertEquals(VoiceCommand.Ask("is this ok"), CommandParser("hey max").parse("they max out, hey max is this ok"))
+
   @Test fun spanishSpeechStillMatchesWake() =
     assertEquals(VoiceCommand.Ask("qué significa esta luz"), p.parse("Hey dispatch, ¿qué significa esta luz?"))
 }

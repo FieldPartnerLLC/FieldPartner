@@ -32,7 +32,7 @@ class CommandParser(val wakePhrase: String, val assistantName: String = "partner
     val v = linkedSetOf(base)
     if (base.startsWith("hey ")) {
       val rest = base.removePrefix("hey ")
-      listOf("hi", "hay", "a", "ok", "okay").forEach { v.add("$it $rest") }
+      listOf("hi", "hay").forEach { v.add("$it $rest") }
     }
     if (base.contains("dispatch")) {
       v.add(base.replace("dispatch", "dispatcher"))
@@ -41,23 +41,41 @@ class CommandParser(val wakePhrase: String, val assistantName: String = "partner
     v.filter { it.isNotBlank() }.sortedByDescending { it.length }
   }
 
+  /**
+   * Mishearings of "hey" that are also everyday words ("we sent a dispatch", "okay, dispatch
+   * will call"). They only count at the very start of an utterance, so talk about a dispatch
+   * never wakes the assistant. Same rule as iOS.
+   */
+  val startOnlyWakeVariants: List<String> by lazy {
+    val base = normalize(wakePhrase)
+    if (!base.startsWith("hey ")) return@lazy emptyList()
+    val rest = base.removePrefix("hey ")
+    if (rest.isBlank()) emptyList() else listOf("a $rest", "ok $rest", "okay $rest")
+  }
+
   fun normalize(s: String): String {
     val cleaned = s.lowercase().map { if (it.isLetterOrDigit() || it == ' ') it else ' ' }.joinToString("")
     return cleaned.split(' ').filter { it.isNotEmpty() }.joinToString(" ")
   }
 
-  /** Finds the wake phrase in an utterance. Returns the text after it, or null if absent. */
+  /**
+   * Finds the wake phrase in an utterance. Returns the text after it, or null if absent.
+   * The phrase must sit on word boundaries on both sides ("hey max" never matches "they maximum"
+   * or "hey maxwell"), and every occurrence is checked, not just the first.
+   */
   fun textAfterWake(utterance: String): String? {
     val n = normalize(utterance)
-    for (variant in wakeVariants) {
+    val candidates = (wakeVariants.map { it to false } + startOnlyWakeVariants.map { it to true })
+      .sortedByDescending { it.first.length }
+    for ((variant, startOnly) in candidates) {
       var from = 0
-      while (true) {
+      while (from < n.length) {
         val idx = n.indexOf(variant, from)
         if (idx < 0) break
         val startOk = idx == 0 || n[idx - 1] == ' '
         val end = idx + variant.length
         val endOk = end == n.length || n[end] == ' '
-        if (startOk && endOk) return n.substring(end).trim()
+        if (startOk && endOk && (!startOnly || idx == 0)) return n.substring(end).trim()
         from = idx + 1
       }
     }
