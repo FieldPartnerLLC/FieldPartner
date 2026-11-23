@@ -141,7 +141,6 @@ jobs:
           xcodegen generate
       - name: Build, unit test and launch on the newest iPhone simulator
         run: bash scripts/ci/ios-smoke.sh
-        env: { FP_SDK_PROBE: "1" }
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: ios-simulator, path: ci-out/, if-no-files-found: ignore }
