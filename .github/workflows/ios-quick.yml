@@ -100,7 +100,8 @@ jobs:
       # Compiled packages (LiveKit, WebRTC glue, Meta DAT) and earlier app objects. Xcode rebuilds only
       # what changed. Keyed per commit so every run saves its products for the next one.
       - name: Restore build products
-        if: inputs.warm_build != false
+        # Pushes and other events have no inputs; only a dispatch can turn the warm build off.
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.warm_build }}
         uses: actions/cache@v6
         with:
           path: build/ios/Build
