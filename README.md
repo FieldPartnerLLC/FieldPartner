@@ -77,6 +77,8 @@ The first run asks for your Apple Team ID (Xcode > Settings > Accounts; a free A
 - Paid Apple Developer account: glasses video works.
 - Manual steps, if you prefer Xcode: `docs/EMULATOR-AND-STORES.md` section 5.
 
+**First iPhone and glasses test:** follow `docs/IPHONE-TEST-TONIGHT.md`, a 45-minute script from install to report, with 15 test lines to mark Pass or Fail.
+
 After TestFlight is set up, the technician installs TestFlight, opens the invite link, and taps Install.
 
 ## E. Join with the invite code (technician)
