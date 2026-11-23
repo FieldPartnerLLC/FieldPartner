@@ -42,3 +42,15 @@ pause-camera privacy controls, the offline EventQueue, or the UploadManager's Wi
 - Phone -> agent, topic `fp.cmd`: `{"type":"ask","text":...}`, `listen`, `stop`, `continue`, `hint_play`, `camera` (`allowed`), `disputed`, `context_refresh`, `end`.
 - Agent -> phone, topic `fp.event`: `assistant_state` (`idle|listening|thinking|speaking|muted`), `tool` (`save_reading|save_equipment|add_note|draft_estimate`), `hint`, `safety`, `escalation`, `expert`, `watcher`.
 - Captions: LiveKit's `lk.transcription` topic.
+
+## Skills
+
+Project skills live in `.claude/skills/` and load automatically in Claude Code:
+
+- `ios-ci-loop`: fix iOS compile, test and launch failures through GitHub's macOS runners, no Mac needed.
+- `iphone-install`: install on a plugged-in iPhone; Local.xcconfig, free vs paid Apple team, Developer Mode.
+- `android-build-install`: build, test and sideload the Android app; get the APK from CI.
+- `glasses-debug`: Meta DAT 1.1 setup, registration, Wi-Fi video, symptoms and fixes.
+- `release-and-deploy`: merge to main only when green; Render deploy; APK release; health check.
+- `field-test`: run docs/FIELD-TEST-CHECKLIST.md and record results.
+- `progress-dashboard`: update the FieldPartner Launch Progress dashboard.
