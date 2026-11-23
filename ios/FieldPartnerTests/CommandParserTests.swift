@@ -67,4 +67,25 @@ final class CommandParserTests: XCTestCase {
     let short = CommandParser(wakePhrase: "hey max")
     XCTAssertNil(short.parse(finalUtterance: "they maximum load is fine"))
   }
+
+  func testTalkAboutADispatchDoesNotWake() {
+    XCTAssertNil(p.parse(finalUtterance: "We sent a dispatch out to the site yesterday"))
+    XCTAssertNil(p.parse(finalUtterance: "I said okay, dispatch will call you back"))
+    XCTAssertNil(p.parse(finalUtterance: "Hey, dispatching the truck now"))
+  }
+
+  func testEverydayWordVariantsWorkAtTheStart() {
+    XCTAssertEqual(p.parse(finalUtterance: "Okay dispatch, read the plate"), .ask("read the plate"))
+    XCTAssertEqual(p.parse(finalUtterance: "A dispatch what is this code"), .ask("what is this code"))
+  }
+
+  func testWakePhraseNeedsAWordBoundaryAfterIt() {
+    let short = CommandParser(wakePhrase: "hey max")
+    XCTAssertNil(short.parse(finalUtterance: "hey maxwell is here"))
+  }
+
+  func testLaterOccurrenceIsFound() {
+    let short = CommandParser(wakePhrase: "hey max")
+    XCTAssertEqual(short.parse(finalUtterance: "they max out, hey max is this ok"), .ask("is this ok"))
+  }
 }
