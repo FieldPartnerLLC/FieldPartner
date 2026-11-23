@@ -66,7 +66,7 @@ final class LiveSession: NSObject, ObservableObject {
         try await room.localParticipant.setCamera(enabled: true, captureOptions: CameraCaptureOptions(position: .back))
         localVideoTrack = room.localParticipant.localVideoTracks.compactMap { $0.track as? LocalVideoTrack }.first
       } else {
-        let track = LocalVideoTrack.createBufferTrack(name: "glasses", source: .camera)
+        let track = await LocalVideoTrack.createBufferTrack(name: "glasses", source: .camera)
         capturerBox.sawFrame = false
         capturerBox.capturer = track.capturer as? BufferCapturer
         try await track.start()
