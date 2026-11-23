@@ -85,6 +85,12 @@ export async function jobRoutes(app: FastifyInstance) {
       const tech = await one<any>("select company_id from users where id = $1 and active", [assigned]);
       if (!tech || (tech.company_id !== companyId && user.role !== "owner")) throw new HttpError(400, "bad_tech", "That technician is not in this company.");
     }
+    // A customer id from the request must belong to this company, or the job would expose
+    // another company's customer (name, phone, email, visit history) through this company's job.
+    if (body.customer?.id) {
+      const own = await one("select 1 from customers where id = $1 and company_id = $2", [body.customer.id, companyId]);
+      if (!own) throw new HttpError(400, "bad_customer", "That customer is not in this company.");
+    }
     const id = await tx(async (ex) => {
       let customerId: string | null = body.customer?.id ?? null;
       if (!customerId && body.customer) {
@@ -123,8 +129,8 @@ export async function jobRoutes(app: FastifyInstance) {
     const history = job.customer_id
       ? await q(
           `select v.id, v.started_at, v.report->>'summary' as summary, j2.title from visits v join jobs j2 on j2.id = v.job_id
-           where j2.customer_id = $1 and v.ended_at is not null order by v.started_at desc limit 5`,
-          [job.customer_id],
+           where j2.customer_id = $1 and j2.company_id = $2 and v.ended_at is not null order by v.started_at desc limit 5`,
+          [job.customer_id, job.company_id],
         )
       : [];
     const trade = await one("select id, name, profile from trade_profiles where id = $1", [job.trade]);
@@ -138,6 +144,10 @@ export async function jobRoutes(app: FastifyInstance) {
     if (!job) throw notFound("Job not found.");
     assertCompanyAccess(req.user!, job.company_id);
     if (req.user!.role === "tech" && job.assigned_tech_id && job.assigned_tech_id !== req.user!.id) throw notFound("Job not found.");
+    if (body.assignedTechId && req.user!.role !== "tech") {
+      const tech = await one<any>("select company_id from users where id = $1 and active", [body.assignedTechId]);
+      if (!tech || (tech.company_id !== job.company_id && req.user!.role !== "owner")) throw new HttpError(400, "bad_tech", "That technician is not in this company.");
+    }
     const map: Record<string, string> = {
       title: "title",
       complaint: "complaint",
