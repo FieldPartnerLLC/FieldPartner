@@ -8,7 +8,9 @@ struct FieldPartnerApp: App {
   init() {
     do {
       try Wearables.configure()
+      GlassesManager.sdkReady = true
     } catch {
+      GlassesManager.sdkError = String(describing: error)
       NSLog("[FieldPartner] Wearables SDK configure failed: %@", String(describing: error))
     }
     _model = StateObject(wrappedValue: AppModel())

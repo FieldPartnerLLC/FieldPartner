@@ -51,8 +51,13 @@ final class GlassesManager: ObservableObject {
   nonisolated(unsafe) var onPixelBuffer: ((CVPixelBuffer) -> Void)?
   nonisolated(unsafe) var onSampleBuffer: ((CMSampleBuffer) -> Void)?
 
-  private let wearables: WearablesInterface
-  private let selector: AutoDeviceSelector
+  /// Set at launch by FieldPartnerApp. When Meta's SDK fails to configure, the app still runs
+  /// (phone camera, AI, reports) and the glasses show as unavailable instead of crashing.
+  nonisolated(unsafe) static var sdkReady = false
+  nonisolated(unsafe) static var sdkError: String?
+
+  private let wearables: WearablesInterface?
+  private let selector: AutoDeviceSelector?
   private var session: DeviceSession?
   private var camera: MWDATCamera.Camera?
   private let sessionTokens = ListenerTokenBag()
@@ -66,8 +71,14 @@ final class GlassesManager: ObservableObject {
   private var frameCount = 0
   private var fpsWindowStart = Date()
 
-  init(wearables: WearablesInterface = Wearables.shared) {
+  init(wearables: WearablesInterface? = GlassesManager.sdkReady ? Wearables.shared : nil) {
     self.wearables = wearables
+    guard let wearables else {
+      self.selector = nil
+      self.registration = .unavailable
+      self.link = .error("Glasses are unavailable on this phone: \(GlassesManager.sdkError ?? "the Meta SDK did not start").")
+      return
+    }
     self.selector = AutoDeviceSelector(wearables: wearables)
     self.registration = wearables.registrationState
     registrationTask = Task { [weak self] in
@@ -79,6 +90,7 @@ final class GlassesManager: ObservableObject {
     }
     monitorTask = Task { [weak self] in
       guard let self else { return }
+      guard let selector = self.selector else { return }
       for await deviceId in selector.activeDeviceStream() {
         self.hasActiveDevice = deviceId != nil
         self.observeDevice(deviceId)
@@ -105,7 +117,7 @@ final class GlassesManager: ObservableObject {
 
   private func observeDevice(_ id: DeviceIdentifier?) {
     deviceStateToken = nil
-    guard let id, let device = wearables.deviceForIdentifier(id) else {
+    guard let id, let wearables, let device = wearables.deviceForIdentifier(id) else {
       batteryLevel = nil
       deviceName = nil
       return
@@ -113,7 +125,7 @@ final class GlassesManager: ObservableObject {
     deviceName = device.nameOrId()
     deviceStateToken = device.addDeviceStateListener { [weak self] _ in
       Task { @MainActor [weak self] in
-        guard let self, let d = self.wearables.deviceForIdentifier(id) else { return }
+        guard let self, let d = self.wearables?.deviceForIdentifier(id) else { return }
         self.batteryLevel = d.batteryLevel
       }
     }
@@ -122,6 +134,10 @@ final class GlassesManager: ObservableObject {
   // MARK: - Registration
 
   func register() {
+    guard let wearables else {
+      errorMessage = "Glasses are unavailable on this phone: \(GlassesManager.sdkError ?? "the Meta SDK did not start")."
+      return
+    }
     Task {
       do {
         try await wearables.startRegistration()
@@ -133,7 +149,7 @@ final class GlassesManager: ObservableObject {
 
   func unregister() {
     Task {
-      try? await wearables.startUnregistration()
+      try? await wearables?.startUnregistration()
     }
   }
 
@@ -141,6 +157,7 @@ final class GlassesManager: ObservableObject {
     guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
       comps.queryItems?.contains(where: { $0.name == "metaWearablesAction" }) == true
     else { return }
+    guard sdkReady else { return }
     _ = try? await Wearables.shared.handleUrl(url)
   }
 
@@ -176,6 +193,10 @@ final class GlassesManager: ObservableObject {
       return
     }
     guard session == nil else { return }
+    guard let wearables, let selector else {
+      link = .error("Glasses are unavailable on this phone.")
+      return
+    }
     do {
       let s = try wearables.createSession(deviceSelector: selector)
       session = s
@@ -227,7 +248,7 @@ final class GlassesManager: ObservableObject {
   }
 
   private func beginStreamIfReady() async {
-    guard wantStream, camera == nil, let s = session, s.state == .started else { return }
+    guard wantStream, camera == nil, let s = session, s.state == .started, let wearables else { return }
     do {
       if try await wearables.checkPermissionStatus(.camera) != .granted {
         needsCameraPermission = true
@@ -258,6 +279,7 @@ final class GlassesManager: ObservableObject {
   /// Opens the Meta AI app to grant camera access, then starts the stream.
   func requestCameraPermission() async {
     needsCameraPermission = false
+    guard let wearables else { return }
     do {
       guard try await wearables.requestPermission(.camera) == .granted else {
         errorMessage = "Camera permission was not granted in the Meta AI app."
@@ -320,7 +342,8 @@ final class GlassesManager: ObservableObject {
 
   /// Silent check (no app switch) of the glasses camera permission in Meta AI.
   func cameraPermissionGranted() async -> Bool {
-    (try? await wearables.checkPermissionStatus(.camera)) == .granted
+    guard let wearables else { return false }
+    return (try? await wearables.checkPermissionStatus(.camera)) == .granted
   }
 
   private func countFrame() {
@@ -352,6 +375,7 @@ final class GlassesManager: ObservableObject {
   /// `demoVideo` plays the bundled furnace video as the glasses camera (works in the iOS
   /// Simulator, which has no camera). Otherwise the phone's back camera is the feed.
   func enableSimulatedGlasses(demoVideo: Bool = true) {
+    guard wearables != nil else { return }
     MockDeviceKit.shared.enable()
     do {
       let glasses = try MockDeviceKit.shared.pairGlasses(model: .rayBanMeta)
