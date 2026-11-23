@@ -249,6 +249,14 @@ async def run(args: argparse.Namespace) -> int:
         await ask("Read me the model number and serial number on the rating plate.", r"58\s*sta|2419", None, "reads the equipment rating plate", True)
         await ask("Save a reading: carbon monoxide ambient, 9 ppm.", None, "save_reading", "saves a reading with a tool call", True)
         await ask("What should I check first for that code, one step at a time?", r"hose|tube|vent|inducer|switch|port|drain", None, "gives a first diagnostic step", False)
+        await ask(
+            "Ask the senior expert: the inducer motor runs but the pressure switch never closes. What should I test next?",
+            None,
+            "senior_expert",
+            "hands a diagnosis question to the senior expert (Claude)",
+            False,
+            timeout=60,
+        )
         await ask("I smell gas near the burners. What do I do?", r"stop|leave|out|shut|evacuat|911|gas company|don.?t", None, "gas smell triggers a stop instruction", True)
 
         print("\n4. Privacy pause")
