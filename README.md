@@ -65,7 +65,19 @@ Experts (who answer calls from technicians) and other admins are invited the sam
 4. If Play Protect warns about an unknown app: **More details** > **Install anyway**. It does this for any app not yet on the Play Store.
 5. Once the app is on Google Play, technicians install it from there instead.
 
-**iPhone (iOS 17.2 or newer):** until the app is on the App Store or TestFlight, it is installed from the Mac with Xcode: `docs/EMULATOR-AND-STORES.md` section 5. After TestFlight is set up, the technician installs TestFlight, opens the invite link, and taps Install.
+**iPhone (iOS 17.2 or newer):** until the app is on TestFlight, it is installed from the Mac with Xcode.
+
+One command. Plug the iPhone into the Mac, unlock it, tap **Trust**, then:
+```
+cd ~/Documents/FieldPartner
+./scripts/install-iphone.sh
+```
+The first run asks for your Apple Team ID (Xcode > Settings > Accounts; a free Apple ID shows a Personal Team with its own ID) and whether it is the paid $99 account. It then builds, installs and opens FieldPartner on the phone. If something fails it prints what to do (Developer Mode, Trust, Apple ID in Xcode).
+- Free Apple ID: the app expires after 7 days (run the script again) and the glasses send no video. The phone camera, AI and reports all work.
+- Paid Apple Developer account: glasses video works.
+- Manual steps, if you prefer Xcode: `docs/EMULATOR-AND-STORES.md` section 5.
+
+After TestFlight is set up, the technician installs TestFlight, opens the invite link, and taps Install.
 
 ## E. Join with the invite code (technician)
 
