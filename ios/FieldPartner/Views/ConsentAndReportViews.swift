@@ -160,7 +160,7 @@ struct ReportReviewView: View {
               busy = true
               Task {
                 do {
-                  let r = try await model.api.approveReport(visitId: visitId, report: report!, sendSms: sendSms, sendEmail: sendEmail)
+                  let r = try await model.api.approveReport(visitId: visitId, report: report!.cleaned(), sendSms: sendSms, sendEmail: sendEmail)
                   result = r.delivered.isEmpty ? "Approved. Not sent (no customer phone or email, or messaging not set up). Link: \(r.url)" : "Sent by \(r.delivered.joined(separator: " and "))."
                 } catch {
                   result = error.localizedDescription
@@ -188,7 +188,7 @@ struct ReportReviewView: View {
 
   private func listSection(_ title: String, _ items: Binding<[String]>) -> some View {
     Section(title) {
-      TextField("One per line", text: Binding(get: { items.wrappedValue.joined(separator: "\n") }, set: { items.wrappedValue = $0.split(separator: "\n").map(String.init) }), axis: .vertical)
+      TextField("One per line", text: Binding(get: { items.wrappedValue.joined(separator: "\n") }, set: { items.wrappedValue = $0.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) }), axis: .vertical)
         .lineLimit(1...12)
     }
   }
