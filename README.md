@@ -65,7 +65,9 @@ Experts (who answer calls from technicians) and other admins are invited the sam
 4. If Play Protect warns about an unknown app: **More details** > **Install anyway**. It does this for any app not yet on the Play Store.
 5. Once the app is on Google Play, technicians install it from there instead.
 
-**iPhone (iOS 17.2 or newer):** until the app is on the App Store or TestFlight, it is installed from the Mac with Xcode: `docs/EMULATOR-AND-STORES.md` section 5. After TestFlight is set up, the technician installs TestFlight, opens the invite link, and taps Install.
+**iPhone (iOS 17.2 or newer):** until the app is on the App Store or TestFlight, it is installed from the Mac with Xcode: `docs/EMULATOR-AND-STORES.md` section 5.
+
+**First iPhone and glasses test:** follow `docs/IPHONE-TEST-TONIGHT.md`, a 45-minute script from install to report, with 15 test lines to mark Pass or Fail. After TestFlight is set up, the technician installs TestFlight, opens the invite link, and taps Install.
 
 ## E. Join with the invite code (technician)
 
