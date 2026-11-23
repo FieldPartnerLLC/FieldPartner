@@ -230,6 +230,21 @@ final class APIClient: @unchecked Sendable {
   }
 }
 
+extension APIClient {
+  /// Local-storage mode signs upload URLs with the server's PUBLIC_API_URL. If that says
+  /// localhost (a server on a Mac), point it at the address the phone already uses. Same as Android.
+  static func rewriteLocalhost(_ url: URL, apiBase: URL) -> URL {
+    guard let host = url.host, host == "localhost" || host == "127.0.0.1",
+      var comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
+      let base = URLComponents(url: apiBase, resolvingAgainstBaseURL: false), base.host != nil
+    else { return url }
+    comps.scheme = base.scheme
+    comps.host = base.host
+    comps.port = base.port
+    return comps.url ?? url
+  }
+}
+
 /// Type-erases Encodable so request() can take `body: Encodable?`.
 struct AnyEncodable: Encodable {
   let value: Encodable

@@ -39,6 +39,9 @@ actor UploadManager {
 
   func configure(api: APIClient) {
     self.api = api
+    // Recordings left from an earlier run upload as soon as the app is signed in again,
+    // not only after the next network change.
+    Task { await processQueue() }
   }
 
   var pendingCount: Int { items.count }
@@ -80,7 +83,10 @@ actor UploadManager {
       do {
         let size = (try? FileManager.default.attributesOfItem(atPath: item.path)[.size] as? Int) ?? 0
         let ticket = try await api.requestUpload(visitId: item.visitId, kind: item.kind, filename: url.lastPathComponent, contentType: item.contentType, bytes: size, clientId: item.clientId)
-        if ticket.alreadyUploaded != true, let target = ticket.url.flatMap(URL.init(string:)) {
+        if ticket.alreadyUploaded != true {
+          // No usable upload address means nothing was stored: keep the file and retry later.
+          guard let signed = ticket.url.flatMap(URL.init(string:)) else { throw APIError.badResponse }
+          let target = APIClient.rewriteLocalhost(signed, apiBase: api.baseURL)
           try await api.upload(file: url, to: target, contentType: item.contentType)
           try await api.completeUpload(mediaId: ticket.mediaId, bytes: size)
         }

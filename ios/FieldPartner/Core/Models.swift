@@ -158,6 +158,47 @@ struct ServiceReport: Codable, Equatable {
   var customerDecisions: [String]
   var followUp: [String]
   var summary: String
+
+  enum CodingKeys: String, CodingKey {
+    case customerComplaint, equipment, safetyReadings, readings, findings, workPerformed, partsUsed
+    case observations, safetyEvents, supervisorInvolvement, customerDecisions, followUp, summary
+  }
+
+  /// Trims text and drops the blank lines left behind by editing in a text box (same as Android).
+  func cleaned() -> ServiceReport {
+    func t(_ s: String) -> String { s.trimmingCharacters(in: .whitespacesAndNewlines) }
+    func l(_ x: [String]) -> [String] { x.map(t).filter { !$0.isEmpty } }
+    var r = self
+    r.customerComplaint = t(customerComplaint)
+    r.equipment = t(equipment)
+    r.safetyReadings = l(safetyReadings)
+    r.readings = l(readings)
+    r.findings = l(findings)
+    r.workPerformed = l(workPerformed)
+    r.partsUsed = l(partsUsed)
+    r.observations = l(observations)
+    r.safetyEvents = l(safetyEvents)
+    r.supervisorInvolvement = t(supervisorInvolvement)
+    r.customerDecisions = l(customerDecisions)
+    r.followUp = l(followUp)
+    r.summary = t(summary)
+    return r
+  }
+}
+
+extension ServiceReport {
+  /// A report saved from the portal may leave sections out. Missing fields default to empty,
+  /// as on Android, instead of failing the whole report screen with "Unexpected reply".
+  init(from decoder: Decoder) throws {
+    let c = try decoder.container(keyedBy: CodingKeys.self)
+    func s(_ k: CodingKeys) -> String { ((try? c.decodeIfPresent(String.self, forKey: k)) ?? nil) ?? "" }
+    func l(_ k: CodingKeys) -> [String] { ((try? c.decodeIfPresent([String].self, forKey: k)) ?? nil) ?? [] }
+    self.init(
+      customerComplaint: s(.customerComplaint), equipment: s(.equipment), safetyReadings: l(.safetyReadings),
+      readings: l(.readings), findings: l(.findings), workPerformed: l(.workPerformed), partsUsed: l(.partsUsed),
+      observations: l(.observations), safetyEvents: l(.safetyEvents), supervisorInvolvement: s(.supervisorInvolvement),
+      customerDecisions: l(.customerDecisions), followUp: l(.followUp), summary: s(.summary))
+  }
 }
 
 struct ReportResponse: Codable {
