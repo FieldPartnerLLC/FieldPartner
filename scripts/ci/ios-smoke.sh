@@ -23,9 +23,11 @@ if not best:
     sys.exit("no iPhone simulator found")
 ')
 echo "Using $NAME ($UDID)"
+# Ad-hoc signing ("-", no team needed): an unsigned simulator app has no keychain entitlement, and
+# Meta's Wearables.configure() then fails with internalError, so simulated glasses never pair.
 xcodebuild -project ios/FieldPartner.xcodeproj -scheme FieldPartner \
   -destination "id=$UDID" -derivedDataPath build/ios \
-  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+  CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER= \
   test 2>&1 | tee ci-out/xcodebuild.log | grep -E "error:|warning: unre|Test Suite|Executed|BUILD|\*\*" || true
 grep -q "TEST SUCCEEDED\|\*\* TEST SUCCEEDED \*\*" ci-out/xcodebuild.log || { grep -E "error:" ci-out/xcodebuild.log | head -40; echo "FAIL: build or tests failed"; exit 1; }
 APP=$(ls -d build/ios/Build/Products/Debug-iphonesimulator/FieldPartner.app)
@@ -38,3 +40,9 @@ sleep 15
 xcrun simctl io "$UDID" screenshot ci-out/ios-launch.png
 xcrun simctl spawn "$UDID" launchctl list | grep -q "$BUNDLE" || { echo "FAIL: the app is not running (crashed on launch)"; exit 1; }
 echo "PASS: built, tested, installed and opened on $NAME"
+
+# Meta Wearables SDK status from the app's own log (a warning, never a failure: the app runs without it).
+xcrun simctl spawn "$UDID" log show --last 3m --style compact --predicate 'eventMessage CONTAINS "[FieldPartner]"' > ci-out/app-log.txt 2>/dev/null || true
+grep -h "Wearables SDK configure failed" ci-out/xcodebuild.log ci-out/app-log.txt 2>/dev/null | head -1 | sed 's/^/WARNING: /' || true
+grep -h "Wearables SDK configured\|Simulated glasses" ci-out/app-log.txt 2>/dev/null | sed 's/^.*\[FieldPartner\]/INFO: [FieldPartner]/' | sort -u || true
+

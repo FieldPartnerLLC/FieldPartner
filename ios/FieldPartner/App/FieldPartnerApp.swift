@@ -9,6 +9,7 @@ struct FieldPartnerApp: App {
     do {
       try Wearables.configure()
       GlassesManager.sdkReady = true
+      NSLog("[FieldPartner] Wearables SDK configured")
     } catch {
       GlassesManager.sdkError = String(describing: error)
       NSLog("[FieldPartner] Wearables SDK configure failed: %@", String(describing: error))
@@ -28,7 +29,11 @@ struct FieldPartnerApp: App {
         .tint(Color(red: 0.078, green: 0.227, blue: 0.353))  // FieldPartner navy #143A5A, same as Android and the portal
         #if DEBUG && targetEnvironment(simulator)
         // The iOS Simulator has no glasses and no camera: play the demo video as the glasses feed.
-        .task { model.glasses.enableSimulatedGlasses(demoVideo: true) }
+        .task {
+          model.glasses.enableSimulatedGlasses(demoVideo: true)
+          NSLog("[FieldPartner] Simulated glasses: %@",
+                model.glasses.simulated ? "paired" : "not paired (\(model.glasses.errorMessage ?? "Wearables SDK not configured"))")
+        }
         #endif
     }
   }
