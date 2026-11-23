@@ -18,6 +18,8 @@ on:
         description: Reuse cached build products from earlier runs (faster). Turn off for a clean build.
         type: boolean
         default: true
+  push:
+    branches: [agent/ci-speed]  # TEMPORARY: lets this new workflow be tested before it exists on main
 
 concurrency:
   group: ios-quick-${{ inputs.ref || github.ref }}
