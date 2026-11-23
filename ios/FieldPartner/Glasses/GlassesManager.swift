@@ -62,7 +62,11 @@ final class GlassesManager: ObservableObject {
   private var camera: MWDATCamera.Camera?
   private let sessionTokens = ListenerTokenBag()
   private let streamTokens = ListenerTokenBag()
-  private var deviceStateToken: AnyListenerToken?
+  /// Battery and compatibility listeners for the active device. A token set to nil does not
+  /// cancel its listener (cancel is async), so they live in a bag that is cleared on change.
+  private let deviceTokens = ListenerTokenBag()
+  /// Privacy pause: the camera stays off until resumeCamera(), even though wantStream is true.
+  private var cameraPaused = false
   private var monitorTask: Task<Void, Never>?
   private var registrationTask: Task<Void, Never>?
   private var reconnectTask: Task<Void, Never>?
@@ -86,6 +90,11 @@ final class GlassesManager: ObservableObject {
       for await state in wearables.registrationStateStream() {
         self.registration = state
         self.refreshLinkFromRegistration()
+        // Registration can finish after a visit asked for video (Meta AI approval, or a
+        // Meta AI-initiated registration). Start the session instead of waiting for a device change.
+        if state == .registered, self.wantStream, self.session == nil, self.hasActiveDevice {
+          self.startSession()
+        }
       }
     }
     monitorTask = Task { [weak self] in
@@ -116,18 +125,32 @@ final class GlassesManager: ObservableObject {
   }
 
   private func observeDevice(_ id: DeviceIdentifier?) {
-    deviceStateToken = nil
+    deviceTokens.clear()
     guard let id, let wearables, let device = wearables.deviceForIdentifier(id) else {
       batteryLevel = nil
       deviceName = nil
       return
     }
     deviceName = device.nameOrId()
-    deviceStateToken = device.addDeviceStateListener { [weak self] _ in
-      Task { @MainActor [weak self] in
-        guard let self, let d = self.wearables?.deviceForIdentifier(id) else { return }
-        self.batteryLevel = d.batteryLevel
-      }
+    device.addDeviceStateListener { [weak self] state in
+      Task { @MainActor [weak self] in self?.batteryLevel = state.batteryLevel }
+    }.store(in: deviceTokens)
+    showCompatibility(device.compatibility())
+    device.addCompatibilityListener { [weak self] compat in
+      Task { @MainActor [weak self] in self?.showCompatibility(compat) }
+    }.store(in: deviceTokens)
+  }
+
+  /// Glasses firmware or the glasses-side app often needs an update before the first stream;
+  /// nothing streams until it is done, so say so instead of failing silently.
+  private func showCompatibility(_ compat: Compatibility) {
+    switch compat {
+    case .deviceUpdateRequired:
+      errorMessage = "Your glasses need a software update. Open the Meta AI app, update the glasses, then try again."
+    case .sdkUpdateRequired:
+      errorMessage = "This FieldPartner build is too old for your glasses. Install the latest FieldPartner build."
+    default:
+      break
     }
   }
 
@@ -142,7 +165,7 @@ final class GlassesManager: ObservableObject {
       do {
         try await wearables.startRegistration()
       } catch {
-        errorMessage = (error as? RegistrationError)?.description ?? error.localizedDescription
+        if let msg = Self.message(for: error) { errorMessage = msg }
       }
     }
   }
@@ -153,12 +176,26 @@ final class GlassesManager: ObservableObject {
     }
   }
 
+  /// Meta AI calls back to fieldpartner:// after registration and permission requests. Meta's guidance
+  /// is to hand every callback URL to the SDK (it returns false for URLs that are not its own), so
+  /// no query-parameter filter here: a filter that misses Meta's format would drop the callback and
+  /// leave registration stuck. Registration started from inside the Meta AI app arrives as a
+  /// RegistrationRequest, which FieldPartner always continues.
   static func handle(url: URL) async {
-    guard let comps = URLComponents(url: url, resolvingAgainstBaseURL: false),
-      comps.queryItems?.contains(where: { $0.name == "metaWearablesAction" }) == true
-    else { return }
     guard sdkReady else { return }
-    _ = try? await Wearables.shared.handleUrl(url)
+    do {
+      _ = try await Wearables.shared.handleUrl(url) { request in
+        Task {
+          do {
+            try await request.continueRegistration()
+          } catch {
+            NSLog("[Glasses] Meta AI registration request failed: %@", String(describing: error))
+          }
+        }
+      }
+    } catch {
+      NSLog("[Glasses] handleUrl failed: %@", String(describing: error))
+    }
   }
 
   // MARK: - Streaming
@@ -166,24 +203,30 @@ final class GlassesManager: ObservableObject {
   /// Starts the session and the camera stream. Safe to call repeatedly.
   func startStreaming() {
     wantStream = true
+    cameraPaused = false
     if session == nil { startSession() } else { Task { await beginStreamIfReady() } }
   }
 
   /// Stops the stream and session. Used at the end of a visit.
   func stopStreaming() {
     wantStream = false
+    cameraPaused = false
     reconnectTask?.cancel()
     camera?.stop()
     session?.stop()
   }
 
-  /// Privacy pause keeps the session up so resume is instant.
+  /// Privacy pause keeps the session up so resume is instant. The paused flag stops the
+  /// stream-stopped handler and reconnect timer from turning the camera back on by themselves.
   func pauseCamera() {
+    cameraPaused = true
+    reconnectTask?.cancel()
     camera?.stop()
   }
 
   func resumeCamera() {
     wantStream = true
+    cameraPaused = false
     Task { await beginStreamIfReady() }
   }
 
@@ -211,7 +254,13 @@ final class GlassesManager: ObservableObject {
     } catch {
       session = nil
       sessionTokens.clear()
-      link = .error(error.localizedDescription)
+      if let e = error as? DeviceSessionError, e == .notRegistered {
+        // SDK 1.1: createSession throws until Meta AI registration is done. The registration
+        // stream starts the session once it reaches .registered.
+        link = .notRegistered
+        return
+      }
+      link = .error(Self.message(for: error) ?? error.localizedDescription)
       scheduleReconnect()
     }
   }
@@ -244,20 +293,23 @@ final class GlassesManager: ObservableObject {
   }
 
   private func handleSessionError(_ error: DeviceSessionError) {
-    errorMessage = error.localizedDescription
+    if let msg = Self.message(for: error) { errorMessage = msg }
   }
 
   private func beginStreamIfReady() async {
-    guard wantStream, camera == nil, let s = session, s.state == .started, let wearables else { return }
+    guard wantStream, !cameraPaused, camera == nil, let s = session, s.state == .started, let wearables else { return }
     do {
       if try await wearables.checkPermissionStatus(.camera) != .granted {
         needsCameraPermission = true
         return
       }
     } catch {
-      errorMessage = error.localizedDescription
+      // Usually transient (glasses link not up yet, Meta AI busy). Retry instead of stalling the visit.
+      if let msg = Self.message(for: error) { errorMessage = msg }
+      scheduleReconnect()
       return
     }
+    guard wantStream, !cameraPaused, camera == nil, session === s, s.state == .started else { return }
     // hvc1: compressed frames go to the recorder untouched and are decoded once for
     // the live feed. 15 fps leaves more Bluetooth bandwidth per frame, so each frame
     // is sharper for the AI, which reads stills.
@@ -271,7 +323,7 @@ final class GlassesManager: ObservableObject {
       attach(cam.stream)
       cam.stream.start()
     } catch {
-      errorMessage = error.localizedDescription
+      if let msg = Self.message(for: error) { errorMessage = msg }
       scheduleReconnect()
     }
   }
@@ -287,7 +339,7 @@ final class GlassesManager: ObservableObject {
       }
       await beginStreamIfReady()
     } catch {
-      errorMessage = error.localizedDescription
+      if let msg = Self.message(for: error) { errorMessage = msg }
     }
   }
 
@@ -301,6 +353,9 @@ final class GlassesManager: ObservableObject {
         switch error {
         case .thermalHot: self.errorMessage = "Glasses are too hot. Video paused until they cool down."
         case .batteryLow: self.errorMessage = "Glasses battery is low. Video paused."
+        case .peakPowerLimit: self.errorMessage = "Glasses are at their power limit. Video paused for a moment."
+        case .hingesClosed: self.errorMessage = "Glasses are folded or off your face. Put them on to resume video."
+        case .permissionDenied: self.needsCameraPermission = true
         default: self.errorMessage = error.localizedDescription
         }
       }
@@ -335,7 +390,7 @@ final class GlassesManager: ObservableObject {
       camera?.stop()
       camera = nil
       decoder.reset()
-      if wantStream, session != nil { scheduleReconnect() } else if session != nil { link = .connected }
+      if wantStream, !cameraPaused, session != nil { scheduleReconnect() } else if session != nil { link = .connected }
     @unknown default: break
     }
   }
@@ -363,9 +418,49 @@ final class GlassesManager: ObservableObject {
     reconnectTask?.cancel()
     reconnectTask = Task { [weak self] in
       try? await Task.sleep(nanoseconds: 3_000_000_000)
-      guard let self, !Task.isCancelled, self.wantStream else { return }
+      guard let self, !Task.isCancelled, self.wantStream, !self.cameraPaused else { return }
       if self.session == nil { self.startSession() } else { await self.beginStreamIfReady() }
     }
+  }
+
+  // MARK: - Error text
+
+  /// Plain-language text for the SDK errors a technician can act on. nil means "not worth showing"
+  /// (for example alreadyRegistered).
+  static func message(for error: any Error) -> String? {
+    if let e = error as? RegistrationError {
+      switch e {
+      case .alreadyRegistered: return nil
+      case .metaAINotInstalled: return "Install the Meta AI app and pair your glasses in it first."
+      case .unauthorized:
+        return "Meta AI did not allow FieldPartner. In the Meta AI app open Settings > App info, tap the app version 5 times, turn on Developer Mode, then tap Connect again."
+      case .configurationInvalid: return "This FieldPartner build is missing its Meta setup (Team ID or app ID). Rebuild it from Xcode with your Team ID."
+      case .networkUnavailable: return "No internet connection. Connect and tap Connect again."
+      default: return e.description
+      }
+    }
+    if let e = error as? PermissionError {
+      switch e {
+      case .metaAINotInstalled: return "Install the Meta AI app and pair your glasses in it first."
+      case .noDevice, .noDeviceWithConnection: return "Glasses are not connected. Turn them on, open the case, and keep them near the phone."
+      case .requestTimeout: return "Meta AI did not answer. Open the Meta AI app, then try again."
+      default: return e.description
+      }
+    }
+    if let e = error as? DeviceSessionError {
+      switch e {
+      case .noEligibleDevice: return "No glasses found. Turn them on and make sure they are paired in the Meta AI app."
+      case .notRegistered: return "Glasses are not connected to FieldPartner yet. Tap Connect."
+      case .datAppOnTheGlassesUpdateRequired: return "The glasses need an app update. Open the Meta AI app and update the glasses."
+      case .insufficientSDKVersion: return "This FieldPartner build is too old for your glasses. Install the latest FieldPartner build."
+      case .thermalCritical, .thermalEmergency: return "Glasses are too hot. Let them cool down."
+      case .batteryCritical: return "Glasses battery is almost empty. Charge them."
+      case .peakPowerShutdown: return "Glasses hit their power limit and stopped. Try again in a moment."
+      case .dwaOutOfStuRange: return nil  // non-blocking update suggestion
+      default: return e.description
+      }
+    }
+    return error.localizedDescription
   }
 
   // MARK: - Simulated glasses (debug builds only)
