@@ -13,7 +13,8 @@
     "migrate": "tsx src/migrate.ts",
     "seed": "tsx src/seed.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "media:to-s3": "tsx src/scripts/migrate-local-to-s3.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1173.0",
