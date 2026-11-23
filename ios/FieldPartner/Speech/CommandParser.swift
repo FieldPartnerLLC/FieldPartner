@@ -23,7 +23,7 @@ struct CommandParser {
   /// Short name usable for quick commands, e.g. "partner, stop".
   var assistantName: String = "partner"
 
-  /// Recognizers hear "hey dispatch" in many ways. These variants all count.
+  /// Recognizers hear "hey dispatch" in many ways. These variants all count anywhere in an utterance.
   var wakeVariants: [String] {
     let base = normalize(wakePhrase)
     var v: Set<String> = [base]
@@ -31,15 +31,23 @@ struct CommandParser {
       let rest = String(base.dropFirst(4))
       v.insert("hi \(rest)")
       v.insert("hay \(rest)")
-      v.insert("a \(rest)")
-      v.insert("ok \(rest)")
-      v.insert("okay \(rest)")
     }
     if base.contains("dispatch") {
       v.insert(base.replacingOccurrences(of: "dispatch", with: "dispatcher"))
       v.insert(base.replacingOccurrences(of: "dispatch", with: "this patch"))
     }
-    return Array(v).sorted { $0.count > $1.count }
+    return Array(v).filter { !$0.isEmpty }.sorted { $0.count > $1.count }
+  }
+
+  /// Mishearings of "hey" that are also everyday words ("we sent a dispatch", "okay, dispatch
+  /// will call"). They only count at the very start of an utterance, so talk about a dispatch
+  /// never wakes the assistant.
+  var startOnlyWakeVariants: [String] {
+    let base = normalize(wakePhrase)
+    guard base.hasPrefix("hey ") else { return [] }
+    let rest = String(base.dropFirst(4))
+    guard !rest.isEmpty else { return [] }
+    return ["a \(rest)", "ok \(rest)", "okay \(rest)"]
   }
 
   func normalize(_ s: String) -> String {
@@ -49,14 +57,20 @@ struct CommandParser {
   }
 
   /// Finds the wake phrase in an utterance. Returns the text after it, or nil if absent.
+  /// The phrase must sit on word boundaries on both sides ("hey max" never matches "they maximum"
+  /// or "hey maxwell"), and every occurrence is checked, not just the first.
   func textAfterWake(in utterance: String) -> String? {
     let n = normalize(utterance)
-    for variant in wakeVariants {
-      if let range = n.range(of: variant) {
-        // Must be at a word boundary: "hey dispatcher" should not match inside other words.
-        let before = n[n.startIndex..<range.lowerBound]
-        if !before.isEmpty && !before.hasSuffix(" ") { continue }
-        return String(n[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+    let candidates = wakeVariants.map { ($0, false) } + startOnlyWakeVariants.map { ($0, true) }
+    for (variant, startOnly) in candidates.sorted(by: { $0.0.count > $1.0.count }) {
+      var searchFrom = n.startIndex
+      while searchFrom < n.endIndex, let range = n.range(of: variant, range: searchFrom..<n.endIndex) {
+        let startOK = range.lowerBound == n.startIndex || n[n.index(before: range.lowerBound)] == " "
+        let endOK = range.upperBound == n.endIndex || n[range.upperBound] == " "
+        if startOK && endOK && (!startOnly || range.lowerBound == n.startIndex) {
+          return String(n[range.upperBound...]).trimmingCharacters(in: .whitespaces)
+        }
+        searchFrom = n.index(after: range.lowerBound)
       }
     }
     return nil
