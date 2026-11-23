@@ -17,6 +17,7 @@ import com.meta.wearable.dat.core.types.LinkState
 import com.meta.wearable.dat.core.types.Permission
 import com.meta.wearable.dat.core.types.PermissionStatus
 import com.meta.wearable.dat.core.types.RegistrationState
+import com.meta.wearable.dat.core.types.WearablesError
 import com.meta.wearable.dat.mockdevice.MockDeviceKit
 import com.meta.wearable.dat.mockdevice.api.GlassesModel
 import com.meta.wearable.dat.mockdevice.api.MockDeviceKitConfig
@@ -78,8 +79,9 @@ class GlassesManager(private val app: Context) {
   private var watchdog: Job? = null
   private var initialized = false
   private var mockGlasses: MockGlasses? = null
+  private var deviceJob: Job? = null
   @Volatile private var lastFrameAt = 0L
-  private var restarts = 0
+  @Volatile private var restarts = 0
   @Volatile private var wantStream = false
 
   /** Starts the toolkit. Call after Bluetooth permission is granted. Safe to call again after a failure. */
@@ -88,8 +90,11 @@ class GlassesManager(private val app: Context) {
     var ok = true
     try {
       Wearables.initialize(app).onFailure { err, _ ->
-        ok = false
-        setError("Glasses toolkit failed to start: ${err.description}")
+        // MockDeviceKit.enable() initializes the toolkit itself; that is not a failure.
+        if (err != WearablesError.ALREADY_INITIALIZED) {
+          ok = false
+          setError("Glasses toolkit failed to start: ${err.description}")
+        }
       }
     } catch (e: Exception) {
       ok = false
@@ -98,16 +103,22 @@ class GlassesManager(private val app: Context) {
     if (!ok) return
     initialized = true
     scope.launch { Wearables.registrationState.collect { s -> _status.update { it.copy(registration = s.name) } } }
+    // Without this, "Meta AI not installed" or "not authorized" after tapping Connect shows nothing.
+    scope.launch { Wearables.registrationErrorStream.collect { e -> setError(GlassesMessages.registrationError(e.name, e.description)) } }
     scope.launch {
       Wearables.devices.collect { ids ->
         _status.update { it.copy(deviceCount = ids.size) }
+        // One metadata collector at a time: devices emits on every change.
+        deviceJob?.cancel()
+        deviceJob = null
         ids.firstOrNull()?.let { id ->
           Wearables.devicesMetadata[id]?.let { flow ->
-            scope.launch {
-              flow.collect { d ->
-                _status.update { it.copy(deviceName = d.name, connected = d.linkState == LinkState.CONNECTED, battery = d.batteryLevel.takeIf { b -> b in 0..100 }) }
+            deviceJob =
+              scope.launch {
+                flow.collect { d ->
+                  _status.update { it.copy(deviceName = d.name, connected = d.linkState == LinkState.CONNECTED, battery = d.batteryLevel.takeIf { b -> b in 0..100 }) }
+                }
               }
-            }
           }
         }
       }
@@ -168,9 +179,17 @@ class GlassesManager(private val app: Context) {
     watchdog?.cancel()
     watchdog =
       scope.launch {
-        // Wi-Fi Direct between phone and glasses drops in busy RF. Restart after a 10 s stall, up to 3 times.
+        // Wi-Fi Direct between phone and glasses drops in busy RF. Restart after a 10 s stall, up to 3 times
+        // in a row (the budget resets when frames flow again). A paused session (glasses off the face or
+        // folded) resumes by itself, so it is not a stall. A stopped session is terminal and is replaced.
         while (wantStream) {
           delay(5_000)
+          val st = _status.value
+          if (session == null) {
+            if (st.isRegistered) openSession()
+            continue
+          }
+          if (GlassesMessages.isPaused(st.sessionState, st.streamState)) continue
           val stalled = lastFrameAt > 0 && System.currentTimeMillis() - lastFrameAt > 10_000
           if (stalled && restarts < 3) {
             restarts++
@@ -198,7 +217,7 @@ class GlassesManager(private val app: Context) {
     Wearables.createSession(AutoDeviceSelector()).fold(
       onSuccess = { s ->
         session = s
-        jobs += scope.launch { s.errors.collect { e -> setError(e.description) } }
+        jobs += scope.launch { s.errors.collect { e -> setError(GlassesMessages.sessionError(e.name, e.description)) } }
         jobs +=
           scope.launch {
             s.state.collect { st ->
@@ -207,12 +226,14 @@ class GlassesManager(private val app: Context) {
               if (st == DeviceSessionState.STOPPED) {
                 camera = null
                 _status.update { it.copy(streamState = StreamState.STOPPED.name) }
+                // A stopped session can't be restarted. Drop it so the watchdog opens a new one.
+                if (session === s) scope.launch { closeSession() }
               }
             }
           }
         s.start()
       },
-      onFailure = { e, _ -> setError("Glasses session failed: ${e.description}") },
+      onFailure = { e, _ -> setError(GlassesMessages.sessionError(e.name, "Glasses session failed: ${e.description}")) },
     )
   }
 
@@ -222,12 +243,13 @@ class GlassesManager(private val app: Context) {
         camera = cam
         val stream = cam.stream
         jobs += scope.launch { stream.state.collect { st -> _status.update { it.copy(streamState = st.name) } } }
-        jobs += scope.launch { stream.errorStream.collect { e -> setError(e.description) } }
+        jobs += scope.launch { stream.errorStream.collect { e -> setError(GlassesMessages.streamError(e.name, e.description)) } }
         jobs +=
           scope.launch(frameDispatcher) {
             var n = 0L
             stream.videoStream.collect { frame ->
               lastFrameAt = System.currentTimeMillis()
+              if (restarts != 0) restarts = 0
               if (!frame.isCompressed) {
                 onFrame?.invoke(frame.buffer, frame.width, frame.height)
                 if (previewEnabled && System.currentTimeMillis() - lastPreviewAt > 800) {
