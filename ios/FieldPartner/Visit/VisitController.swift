@@ -464,6 +464,9 @@ final class VisitController: ObservableObject {
     await videoRecorder.stop()
     audioRecorder.stop()
     localMic.stop()
+    // The tap is registered once per visit; leaving it would keep feeding this visit's
+    // transcript and recorder buffers during the next visit's call.
+    AudioManager.shared.remove(localAudioRenderer: micTap)
     clip.stop()
     recording = false
     Earcon.recordingOff.play()

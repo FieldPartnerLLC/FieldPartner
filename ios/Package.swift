@@ -12,7 +12,7 @@ let package = Package(
     .target(
       name: "FieldPartner",
       path: "FieldPartner",
-      sources: ["Core/Models.swift", "Core/APIClient.swift", "Core/EventQueue.swift", "Core/LiveVideoProfile.swift", "Speech/CommandParser.swift"]
+      sources: ["Core/Models.swift", "Core/APIClient.swift", "Core/EventQueue.swift", "Core/LiveVideoProfile.swift", "Core/AudioRoutePolicy.swift", "Speech/CommandParser.swift"]
     ),
     .testTarget(
       name: "FieldPartnerTests",

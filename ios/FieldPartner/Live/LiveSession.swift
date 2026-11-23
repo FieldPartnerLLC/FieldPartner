@@ -53,6 +53,8 @@ final class LiveSession: NSObject, ObservableObject {
   private var usingPhoneCamera = false
   private var handlersRegistered = false
   private var captionClear: Task<Void, Never>?
+  /// Watches for the glasses connecting or dropping during the call (AVAudioSession route changes).
+  private var routeObserver: NSObjectProtocol?
 
   override init() {
     super.init()
@@ -65,12 +67,14 @@ final class LiveSession: NSObject, ObservableObject {
     guard state == .idle || isFailed else { return }
     state = .connecting
     usingPhoneCamera = phoneCamera
-    // Glasses: route call audio to their Bluetooth HFP mic and speakers, not the phone speaker.
-    AudioManager.shared.isSpeakerOutputPreferred = phoneCamera
+    // Glasses: call audio goes to their Bluetooth HFP mic and speakers when they are connected,
+    // otherwise to the loudspeaker. Phone-camera mode always uses the loudspeaker.
+    AudioManager.shared.isSpeakerOutputPreferred = phoneCamera || !Self.glassesAudio().available
     do {
       try await room.connect(url: ticket.url, token: ticket.token)
       try await room.localParticipant.setMicrophone(enabled: true)
-      routeToGlassesIfAvailable()
+      applyAudioRoute(.callStarted)
+      observeAudioRoute()
       if phoneCamera {
         try await room.localParticipant.setCamera(enabled: true, captureOptions: CameraCaptureOptions(position: .back))
         localVideoTrack = room.localParticipant.localVideoTracks.compactMap { $0.track as? LocalVideoTrack }.first
@@ -97,6 +101,7 @@ final class LiveSession: NSObject, ObservableObject {
   }
 
   func disconnect() async {
+    stopObservingAudioRoute()
     capturerBox.capturer = nil
     pendingTrack = nil
     localVideoTrack = nil
@@ -116,13 +121,60 @@ final class LiveSession: NSObject, ObservableObject {
     return false
   }
 
-  private func routeToGlassesIfAvailable() {
+  // MARK: - Audio route (glasses connecting or dropping mid-call)
+
+  private static func glassesAudio(_ session: AVAudioSession = .sharedInstance())
+    -> (available: Bool, inUse: Bool, preferred: Bool, port: AVAudioSessionPortDescription?)
+  {
+    let port = session.availableInputs?.first(where: { $0.portType == .bluetoothHFP })
+    return (
+      port != nil,
+      session.currentRoute.inputs.contains(where: { $0.portType == .bluetoothHFP }),
+      session.preferredInput?.portType == .bluetoothHFP,
+      port
+    )
+  }
+
+  private func applyAudioRoute(_ event: AudioRoutePolicy.Event) {
     let session = AVAudioSession.sharedInstance()
-    guard !usingPhoneCamera,
-      let hfp = session.availableInputs?.first(where: { $0.portType == .bluetoothHFP }),
-      !session.currentRoute.inputs.contains(where: { $0.portType == .bluetoothHFP })
+    let g = Self.glassesAudio(session)
+    guard
+      let plan = AudioRoutePolicy.plan(
+        event: event, phoneCamera: usingPhoneCamera,
+        glassesAvailable: g.available, glassesInUse: g.inUse, glassesPreferred: g.preferred)
     else { return }
-    try? session.setPreferredInput(hfp)
+    // Changing this makes LiveKit reconfigure the session, so only set it when it differs.
+    if AudioManager.shared.isSpeakerOutputPreferred != plan.speakerPreferred {
+      AudioManager.shared.isSpeakerOutputPreferred = plan.speakerPreferred
+    }
+    switch plan.input {
+    case .keep:
+      break
+    case .preferGlasses:
+      if let port = g.port { try? session.setPreferredInput(port) }
+    case .systemDefault:
+      try? session.setPreferredInput(nil)
+    }
+  }
+
+  private func observeAudioRoute() {
+    stopObservingAudioRoute()
+    routeObserver = NotificationCenter.default.addObserver(
+      forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
+    ) { [weak self] note in
+      let raw = note.userInfo?[AVAudioSessionRouteChangeReasonKey] as? UInt ?? 0
+      let event = AudioRoutePolicy.event(forRouteChangeReason: raw)
+      guard event != .other else { return }
+      Task { @MainActor [weak self] in
+        guard let self, self.state == .connected || self.state == .connecting || self.state == .reconnecting else { return }
+        self.applyAudioRoute(event)
+      }
+    }
+  }
+
+  private func stopObservingAudioRoute() {
+    if let routeObserver { NotificationCenter.default.removeObserver(routeObserver) }
+    routeObserver = nil
   }
 
   // MARK: - Video
