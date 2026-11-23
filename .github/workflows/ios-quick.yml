@@ -1,0 +1,115 @@
+# iPhone quick check: only the iPhone job from ci.yml (core swift tests, xcodegen, build, unit tests,
+# launch on the newest iPhone simulator), with caches, for fast iOS fix loops. It is not a gate:
+# ci.yml still runs the full, clean pipeline before anything ships.
+#
+# Start it from the Actions tab, or:
+#   gh workflow run ios-quick.yml -R FieldPartnerLLC/fieldpartner -f ref=<branch>
+#   gh workflow run ios-quick.yml -R FieldPartnerLLC/fieldpartner -f ref=<branch> -f warm_build=false   # clean build
+name: iPhone quick check
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Branch, tag or commit to build
+        required: true
+        default: main
+      warm_build:
+        description: Reuse cached build products from earlier runs (faster). Turn off for a clean build.
+        type: boolean
+        default: true
+
+concurrency:
+  group: ios-quick-${{ inputs.ref || github.ref }}
+  cancel-in-progress: true
+
+env:
+  LIVE_API: ${{ vars.FP_API_BASE_URL || 'https://fieldpartner-api.onrender.com' }}
+  XCODEGEN_VERSION: "2.46.0"
+  HOMEBREW_NO_AUTO_UPDATE: "1"
+
+jobs:
+  ios:
+    name: iPhone build and tests (latest iPhone simulator)
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with: { ref: "${{ inputs.ref || github.ref }}" }
+
+      - name: Show Xcode
+        id: xcode
+        run: |
+          xcodebuild -version
+          echo "version=$(xcodebuild -version | tr '\n' ' ' | tr -cs 'A-Za-z0-9.' '-')" >> "$GITHUB_OUTPUT"
+
+      - name: Restore core package build
+        uses: actions/cache@v6
+        with:
+          path: ios/.build
+          key: swiftpm-core-${{ runner.os }}-${{ steps.xcode.outputs.version }}-${{ hashFiles('ios/Package.swift', 'ios/FieldPartner/Core/**', 'ios/FieldPartner/Speech/CommandParser.swift', 'ios/FieldPartnerTests/**') }}
+          restore-keys: swiftpm-core-${{ runner.os }}-${{ steps.xcode.outputs.version }}-
+
+      - name: Core tests (swift test)
+        working-directory: ios
+        run: swift test
+
+      - name: Restore xcodegen
+        id: xcodegen-cache
+        uses: actions/cache@v6
+        with:
+          path: ~/.xcodegen
+          key: xcodegen-${{ env.XCODEGEN_VERSION }}-${{ runner.os }}-${{ runner.arch }}
+
+      - name: Install xcodegen
+        if: steps.xcodegen-cache.outputs.cache-hit != 'true'
+        run: |
+          if curl -fsSL -o /tmp/xcodegen.zip "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip"; then
+            rm -rf /tmp/xg && unzip -q /tmp/xcodegen.zip -d /tmp/xg
+            mkdir -p ~/.xcodegen && cp -R /tmp/xg/xcodegen/. ~/.xcodegen/
+          else
+            brew install xcodegen
+            mkdir -p ~/.xcodegen/bin && ln -sf "$(command -v xcodegen)" ~/.xcodegen/bin/xcodegen
+          fi
+
+      - name: Generate the Xcode project
+        working-directory: ios
+        run: |
+          export PATH="$HOME/.xcodegen/bin:$PATH"
+          xcodegen --version
+          # Simulator builds need no signing team. "$()" keeps xcconfig from reading // as a comment.
+          {
+            echo "DEVELOPMENT_TEAM ="
+            echo "FP_BUNDLE_ID = com.ironrim.fieldpartner"
+            echo "FP_API_BASE_URL = ${LIVE_API%%://*}:/\$()/${LIVE_API#*://}"
+            echo "META_APP_ID = 0"
+            echo "CLIENT_TOKEN = 0"
+          } > Config/Local.xcconfig
+          cat Config/Local.xcconfig
+          xcodegen generate
+
+      - name: Restore Swift packages
+        uses: actions/cache@v6
+        with:
+          path: build/ios/SourcePackages
+          key: spm-${{ runner.os }}-${{ steps.xcode.outputs.version }}-${{ hashFiles('ios/project.yml', 'ios/**/Package.resolved') }}
+          restore-keys: spm-${{ runner.os }}-${{ steps.xcode.outputs.version }}-
+
+      # Compiled packages (LiveKit, WebRTC glue, Meta DAT) and earlier app objects. Xcode rebuilds only
+      # what changed. Keyed per commit so every run saves its products for the next one.
+      - name: Restore build products
+        if: inputs.warm_build != false
+        uses: actions/cache@v6
+        with:
+          path: build/ios/Build
+          key: iosbuild-${{ runner.os }}-${{ steps.xcode.outputs.version }}-${{ hashFiles('ios/project.yml') }}-${{ github.run_id }}
+          restore-keys: |
+            iosbuild-${{ runner.os }}-${{ steps.xcode.outputs.version }}-${{ hashFiles('ios/project.yml') }}-
+            iosbuild-${{ runner.os }}-${{ steps.xcode.outputs.version }}-
+
+      - name: Build, unit test and launch on the newest iPhone simulator
+        run: bash scripts/ci/ios-smoke.sh
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with: { name: ios-simulator, path: ci-out/, if-no-files-found: ignore }
