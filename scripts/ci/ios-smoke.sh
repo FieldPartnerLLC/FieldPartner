@@ -38,3 +38,45 @@ sleep 15
 xcrun simctl io "$UDID" screenshot ci-out/ios-launch.png
 xcrun simctl spawn "$UDID" launchctl list | grep -q "$BUNDLE" || { echo "FAIL: the app is not running (crashed on launch)"; exit 1; }
 echo "PASS: built, tested, installed and opened on $NAME"
+
+# Meta Wearables SDK status from the app's own log (a warning, never a failure: the app runs without it).
+xcrun simctl spawn "$UDID" log show --last 3m --style compact --predicate 'eventMessage CONTAINS "[FieldPartner]"' > ci-out/app-log.txt 2>/dev/null || true
+grep -h "Wearables SDK configure failed" ci-out/xcodebuild.log ci-out/app-log.txt 2>/dev/null | head -1 | sed 's/^/WARNING: /' || true
+grep -h "Wearables SDK configured\|Simulated glasses" ci-out/app-log.txt 2>/dev/null | sed 's/^.*\[FieldPartner\]/INFO: [FieldPartner]/' | sort -u || true
+
+# One-off probe: which build settings let Wearables.configure() succeed on the simulator.
+if [ "${FP_SDK_PROBE:-0}" = "1" ]; then
+  set +e +o pipefail
+  cat > ci-out/probe-ent.plist <<'PL'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>application-identifier</key><string>FPCI000000.com.ironrim.fieldpartner</string>
+  <key>keychain-access-groups</key><array><string>FPCI000000.com.ironrim.fieldpartner</string></array>
+</dict></plist>
+PL
+  probe() {
+    local name="$1"; shift
+    echo "=== PROBE $name: $*"
+    xcrun simctl uninstall "$UDID" "$BUNDLE" 2>/dev/null || true
+    if ! xcodebuild -project ios/FieldPartner.xcodeproj -scheme FieldPartner -destination "id=$UDID" \
+        -derivedDataPath build/ios-probe "$@" build > "ci-out/probe-$name.log" 2>&1; then
+      echo "PROBE $name: BUILD FAILED"; grep -E "error:" "ci-out/probe-$name.log" | head -5; return 0
+    fi
+    local app; app=$(ls -d build/ios-probe/Build/Products/Debug-iphonesimulator/FieldPartner.app)
+    codesign -d --entitlements :- "$app" 2>/dev/null | tr -d '\n' | head -c 400; echo
+    /usr/libexec/PlistBuddy -c "Print :MWDAT" "$app/Info.plist" 2>/dev/null | tr '\n' ' '; echo
+    xcrun simctl install "$UDID" "$app"
+    xcrun simctl launch "$UDID" "$BUNDLE" >/dev/null
+    sleep 12
+    xcrun simctl spawn "$UDID" log show --last 20s --style compact --predicate 'eventMessage CONTAINS "[FieldPartner]" OR eventMessage CONTAINS "MWDAT" OR eventMessage CONTAINS "access group" OR eventMessage CONTAINS "attestation"' 2>/dev/null \
+      | grep -v "^Timestamp" | cut -c1-260 | tail -12 | sed "s/^/PROBE $name | /"
+    xcrun simctl terminate "$UDID" "$BUNDLE" 2>/dev/null || true
+  }
+  probe A_unsigned_noteam CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM=
+  probe B_unsigned_team CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO DEVELOPMENT_TEAM=FPCI000000
+  probe C_adhoc_noteam CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= PROVISIONING_PROFILE_SPECIFIER=
+  probe D_adhoc_team CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=FPCI000000 PROVISIONING_PROFILE_SPECIFIER=
+  probe E_adhoc_team_keychain CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM=FPCI000000 PROVISIONING_PROFILE_SPECIFIER= CODE_SIGN_ENTITLEMENTS="$PWD/ci-out/probe-ent.plist"
+  echo "=== PROBE done"
+fi
