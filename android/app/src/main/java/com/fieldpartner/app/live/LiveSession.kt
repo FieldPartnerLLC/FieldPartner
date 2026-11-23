@@ -5,6 +5,8 @@ import android.util.Log
 import com.fieldpartner.app.audio.MicBus
 import com.fieldpartner.app.core.AgentEvent
 import com.fieldpartner.app.core.LiveTicket
+import com.fieldpartner.app.core.LiveVideoBoost
+import com.fieldpartner.app.core.LiveVideoProfile
 import com.fieldpartner.app.glasses.FrameCapturer
 import io.livekit.android.AudioOptions
 import io.livekit.android.LiveKit
@@ -73,6 +75,10 @@ class LiveSession(private val app: Context) {
   private var eventsJob: Job? = null
   private var captionClear: Job? = null
   private var usingPhoneCamera = false
+  /** The published glasses track (null in phone-camera mode). */
+  private var glassesTrack: LocalVideoTrack? = null
+  /** 5 fps while only the AI watches, 15 fps while an expert is in the call. */
+  private val boost = LiveVideoBoost()
   private val cameraSink = VideoSink { frame -> onLocalCameraFrame?.invoke(frame) }
 
   val roomOrNull: Room?
@@ -107,11 +113,10 @@ class LiveSession(private val app: Context) {
           val cap = FrameCapturer()
           val track = r.localParticipant.createVideoTrack(name = "glasses", capturer = cap)
           capturer = cap
+          glassesTrack = track
           track.startCapture()
-          r.localParticipant.publishVideoTrack(
-            track,
-            VideoTrackPublishOptions(name = "glasses", videoEncoding = VideoEncoding(1_000_000, 5) /* AI samples 1 fps; keeps cellular use near 0.45 GB per visit hour */, simulcast = false, source = Track.Source.CAMERA),
-          )
+          val profile = boost.wanted
+          if (r.localParticipant.publishVideoTrack(track, glassesPublishOptions(profile))) boost.onPublished(profile)
           _ui.update { it.copy(localVideoTrack = track) }
         }
       } catch (e: Exception) {
@@ -120,6 +125,7 @@ class LiveSession(private val app: Context) {
       }
       _ui.update { it.copy(state = State.CONNECTED) }
       refreshParticipants()
+      applyExpertPresence()
     } catch (e: Exception) {
       Log.w(TAG, "connect failed: ${e.message}")
       _ui.update { it.copy(state = State.FAILED, error = e.message ?: "Could not connect") }
@@ -137,7 +143,59 @@ class LiveSession(private val app: Context) {
 
   /** Privacy pause: the AI and the expert see nothing while muted. */
   fun setVideoMuted(muted: Boolean) {
-    room?.localParticipant?.getTrackPublication(Track.Source.CAMERA)?.muted = muted
+    val pub = room?.localParticipant?.getTrackPublication(Track.Source.CAMERA)
+    if (pub != null) {
+      pub.muted = muted
+    } else {
+      // Between the unpublish and publish of a profile switch: keep the track itself dark.
+      glassesTrack?.enabled = !muted
+    }
+    boost.setMuted(muted)?.let { switchProfile(it) }
+  }
+
+  private fun glassesPublishOptions(profile: LiveVideoProfile) =
+    VideoTrackPublishOptions(
+      name = "glasses",
+      videoEncoding = VideoEncoding(profile.maxBitrateBps, profile.maxFps),
+      simulcast = false,
+      source = Track.Source.CAMERA,
+    )
+
+  /** Boost or drop the glasses video when an expert joins or leaves. */
+  private fun applyExpertPresence() {
+    boost.setExpertPresent(_ui.value.expertPresent)?.let { switchProfile(it) }
+  }
+
+  /**
+   * LiveKit has no public call to change a published track's encoding, so the glasses track is
+   * unpublished (kept running) and published again with [profile]. The AI and expert see a short
+   * gap. Muting during the switch is honored before and after the new publish.
+   */
+  private fun switchProfile(profile: LiveVideoProfile) {
+    scope.launch {
+      val r = room
+      val track = glassesTrack
+      if (r == null || track == null || _ui.value.state != State.CONNECTED) {
+        boost.onSwitchDone(null)
+        return@launch
+      }
+      var done: LiveVideoProfile? = null
+      try {
+        r.localParticipant.unpublishTrack(track, stopOnUnpublish = false)
+        track.enabled = !boost.muted
+        val ok = r.localParticipant.publishVideoTrack(track, glassesPublishOptions(profile)) ||
+          r.localParticipant.publishVideoTrack(track, glassesPublishOptions(profile))
+        if (ok) {
+          done = profile
+          if (boost.muted) r.localParticipant.getTrackPublication(Track.Source.CAMERA)?.muted = true
+        } else {
+          Log.w(TAG, "video republish failed, voice only")
+        }
+      } catch (e: Exception) {
+        Log.w(TAG, "video profile switch failed: ${e.message}")
+      }
+      boost.onSwitchDone(done)?.let { switchProfile(it) }
+    }
   }
 
   suspend fun setMicEnabled(on: Boolean) {
@@ -158,6 +216,8 @@ class LiveSession(private val app: Context) {
 
   fun disconnect() {
     capturer = null
+    glassesTrack = null
+    boost.reset()
     _ui.value.localVideoTrack?.removeRenderer(cameraSink)
     room?.let { r ->
       runCatching { r.disconnect() }
@@ -182,11 +242,15 @@ class LiveSession(private val app: Context) {
           when (e) {
             is RoomEvent.ParticipantConnected,
             is RoomEvent.ParticipantDisconnected,
-            is RoomEvent.ParticipantAttributesChanged -> refreshParticipants()
+            is RoomEvent.ParticipantAttributesChanged -> {
+              refreshParticipants()
+              applyExpertPresence()
+            }
             is RoomEvent.Reconnecting -> _ui.update { it.copy(state = State.RECONNECTING) }
             is RoomEvent.Reconnected -> {
               _ui.update { it.copy(state = State.CONNECTED) }
               refreshParticipants()
+              applyExpertPresence()
             }
             is RoomEvent.Disconnected -> {
               if (e.reason != DisconnectReason.CLIENT_INITIATED && _ui.value.state != State.IDLE) {
@@ -211,7 +275,10 @@ class LiveSession(private val app: Context) {
         val ev = AgentEvent.parse(sb.toString()) ?: return@launch
         when (ev) {
           is AgentEvent.AssistantState -> _ui.update { it.copy(assistant = ev.state) }
-          is AgentEvent.Expert -> _ui.update { it.copy(expertPresent = ev.present) }
+          is AgentEvent.Expert -> {
+            _ui.update { it.copy(expertPresent = ev.present) }
+            applyExpertPresence()
+          }
           else -> {}
         }
         onAgentEvent?.invoke(ev)
